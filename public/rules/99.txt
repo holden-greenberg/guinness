@@ -1,0 +1,54 @@
+99 (NINETY-NINE) — RULES
+Source: Bicycle Cards, https://bicyclecards.com/how-to-play/99-ninety-nine
+
+PLAYERS: 3 or 4.
+THE PACK: A standard 52-card deck (no Jokers). Plus 3 tokens for each player
+(pennies, buttons, poker chips, etc.).
+
+OBJECT OF THE GAME
+Players place cards into a pile in the middle, counting up a running point
+total as they go. Go over 99 and you lose a token and the round is over. The
+game ends when only one player has a token remaining.
+
+THE DEAL
+Each player places their three tokens in front of them and receives three
+cards from the dealer. The running total starts at zero.
+
+THE PLAY
+Play goes around the table; on your turn you put down one card.
+Each card adds its face value in points (a 5 is worth five points; a face card
+is worth 10 points) EXCEPT for these special cards:
+  - A 4 reverses the direction of play, and does not change the total.
+  - A 9 is a pass, and does not change the total.
+  - A 10 subtracts 10 points from the total.
+  - A King takes the total to 99 (or keeps it at 99 if it is already 99).
+  - An Ace adds either 1 or 11 points, announced by the player who plays it.
+After playing a card, you announce the new total to the table and draw a
+replacement card (so your hand goes back to three cards).
+
+Each player must play a card without sending the total higher than 99.
+If a player cannot play any card that keeps the total at or below 99, that
+player loses a token and the round ends.
+
+The cards are then shuffled and dealt again, and a new round begins.
+
+HOW TO KEEP SCORE / WINNING
+Each lost round costs the losing player one token. A player is eliminated when
+they lose their third token. The last player with a token remaining is the
+winner.
+
+QUICK REFERENCE — card effects
+  2,3,5,6,7,8 ....... add face value
+  4 ................. reverse direction, +0
+  9 ................. pass, +0
+  10 ................ subtract 10
+  J, Q ............. +10 each (face card = 10 points)
+  K ................. set total to 99
+  A ................. +1 or +11 (player chooses when played)
+
+NOTES ON VARIATIONS (house rules — only apply these if the players say they
+are using them; they are NOT part of the Bicycle rules above):
+  - Some groups let a 10 be played as +10 OR -10 at the player's choice.
+  - Some groups treat the 3 as a second "pass" card (+0).
+  - Some groups allow "stacking" so a player forced out can be saved by a
+    reversal. Not in the standard rules.

@@ -3,12 +3,18 @@ main = "src/worker.js"
 compatibility_date = "2026-01-01"
 
 # Static site. Requests that match a file in public/ are served directly;
-# everything else (the /api/* routes) falls through to the Worker.
+# everything else (the /api/* routes) falls through to the Worker. The binding
+# lets the Worker read the rules text files under public/rules/.
 [assets]
 directory = "./public"
+binding = "ASSETS"
 
 # Created with:  wrangler d1 create guinness
 [[d1_databases]]
 binding = "DB"
 database_name = "guinness"
 database_id = "27e361cb-fd24-497d-9474-535fc98a35e3"
+
+# Workers AI — powers the rules Q&A. No resource to create, no key.
+[ai]
+binding = "AI"

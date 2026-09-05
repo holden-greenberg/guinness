@@ -1,0 +1,151 @@
+MONOPOLY DEAL — RULES
+Source: monopolydealrules.com (General, How to Play, Payment, Property, Action,
+Rent, Just Say No, Deal Breaker, House & Hotel, Cards & Contents sections).
+
+OBJECT OF THE GAME
+Be the first player to have THREE complete property sets, of different or the
+same colors, laid out in front of you. Each property card states how many
+cards that color needs to be a complete set.
+
+THE DECK: 110 cards total — 4 "Quick Start Rules" cards (removed before play),
+28 property cards, 11 property wildcards, 13 rent cards, 34 action cards,
+20 money cards.
+
+SETUP
+Remove the 4 Quick Start Rules cards. Shuffle. Deal 5 cards to each player.
+Put the rest face down in the center as the draw pile.
+
+A TURN
+1. Draw 2 cards from the draw pile at the start of your turn and add them to
+   your hand. (If you start your turn with NO cards in hand, draw 5 instead
+   of 2.)
+2. Play up to 3 cards. You do not have to play any. A "play" is placing a card
+   in one of three places:
+     - your BANK (money cards, or action cards played as money), face up
+     - your PROPERTY area (property and property wildcard cards), face up
+     - the center DISCARD PILE (an action card played for its action)
+   Playing an action card for its action, playing it as money into your bank,
+   and playing a property all each use one of your 3 plays. Double The Rent
+   uses a play of its own (see Rent).
+3. End your turn. You may not have more than 7 cards in hand at the end of
+   your turn; discard extras face up onto the discard pile.
+
+Play proceeds clockwise. The game ends the moment a player has 3 complete
+sets in front of them.
+
+MONEY / THE BANK
+Money cards and action cards can be banked as money. Once a card is in your
+bank or property area it is on the table and cannot go back to your hand.
+Property cards are NEVER "money" and cannot be banked, but they can be used to
+pay debts.
+
+PAYMENT (Debt Collector, It's My Birthday, Rent, etc.)
+- You choose which of your cards to pay with — from your bank, your properties,
+  your houses/hotels, or any combination, in any order. The person collecting
+  does not get to choose.
+- You may only pay with cards on the table in front of you. Cards in your hand
+  can never be used to pay.
+- No change is given. If a debt is $3M and you only have a $5M card, the
+  collector keeps the whole $5M.
+- If you do not have enough to cover the full amount, you pay everything you
+  have on the table and the rest of the debt is forgiven.
+- If you have nothing on the table with monetary value, you pay nothing.
+- Property cards used as payment go into the collector's PROPERTY area.
+- An action card received as payment goes into the collector's BANK and can
+  only be used as money after that (its action is spent).
+
+PROPERTIES
+- Play property cards face up in front of you. Group them by color.
+- You win with any 3 COMPLETE sets, even if two or three are the same color.
+- Property wildcards count as the color(s) shown. Two-color wildcards can be
+  flipped/reassigned between their two colors. The 10-color "multicolor"
+  wildcard can stand in for any color.
+- You may move and reassign your wildcards freely, but only during your own
+  turn. Exception: a property received via Forced Deal can be placed where you
+  want when you receive it.
+- The multicolor wildcard has NO money value: it cannot be banked, cannot be
+  used to pay, and you cannot charge rent on it unless it is grouped with at
+  least one real property card of that color. It can be taken by Sly Deal /
+  Forced Deal (if not in a complete set) or Deal Breaker (if in a complete
+  set).
+- A set can never hold more cards than the number needed to complete it. If
+  wildcards give you extras, the surplus must start a new set of that color.
+
+ACTION CARDS (each can instead be banked as money)
+- PASS GO: draw 2 extra cards from the draw pile.
+- DEBT COLLECTOR: force ONE player of your choice to pay you $5M.
+- IT'S MY BIRTHDAY: EVERY other player pays you $2M.
+- SLY DEAL: take 1 property card (or wildcard) from any opponent. It may NOT
+  be taken from a complete set.
+- FORCED DEAL: swap one of your property cards for one of an opponent's.
+  Neither card may come from a complete set. Equal value is NOT required.
+- DEAL BREAKER: take an entire COMPLETE set from an opponent, including any
+  house and hotel on it. Cannot target an incomplete set — if you try, the
+  card is just discarded and you lose that play.
+- HOUSE / HOTEL: see House & Hotel.
+- JUST SAY NO: see Just Say No.
+- RENT / DOUBLE THE RENT: see Rent.
+
+RENT
+- A rent card is played to the discard pile, and you must have property of the
+  matching color on the table to charge rent.
+- You pick ONE color for each rent card played, and charge the standard rent
+  for however many properties you have in that color (see chart below).
+- Two-color rent cards: every opponent pays you.
+- 10-color "wild" rent cards: only ONE opponent of your choice pays you.
+- DOUBLE THE RENT: play it together with a rent card to double that rent. It
+  costs one of your 3 plays (so a rent + one Double The Rent = 2 plays; you
+  can even play two Double The Rent cards on one rent if you have the plays,
+  quadrupling it).
+- A Just Say No on a Double The Rent removes the doubling.
+
+HOUSE & HOTEL
+- A HOUSE can only be added to a COMPLETE set. It adds $3M to that set's rent.
+- A HOTEL can only be added to a complete set that ALREADY has a house. It
+  adds a further $4M to the rent.
+- Houses and hotels cannot be placed on Railroad or Utility sets.
+- On a complete set, a house/hotel can only be taken with Deal Breaker, not
+  Sly Deal or Forced Deal. If a house or hotel is sitting alone on the table
+  (because the set under it was broken up to pay a debt), it CAN then be taken
+  by Sly Deal or Forced Deal.
+- If you break up a complete set that had a house/hotel (e.g. to pay rent),
+  the house/hotel stays on your table on its own until you complete another
+  set to move it onto.
+
+JUST SAY NO
+- Cancels an action used against you (rent, Sly Deal, Forced Deal, Deal
+  Breaker, Debt Collector, It's My Birthday, etc.).
+- Can only be played in response to an action another player targets at you —
+  or to cancel another Just Say No.
+- Does NOT count toward your 3 plays for the turn, whether you play it on your
+  own turn or someone else's.
+- A second Just Say No cancels the first one (the original action goes
+  through). A third cancels the second, and so on — no limit.
+- It only protects the player who plays it. If someone plays It's My Birthday,
+  your Just Say No excuses you but the other players still pay.
+- Must be laid onto the discard pile to be played.
+
+STANDARD REFERENCE — set sizes and rent (widely published values; the site
+above confirms the rules but not this chart)
+  Color        Cards to complete   Rent by # of properties (1 / 2 / 3 / 4)
+  Brown ................ 2 ........ 1 / 2
+  Light Blue .......... 3 ........ 1 / 2 / 3
+  Pink (Magenta) ...... 3 ........ 1 / 2 / 4
+  Orange .............. 3 ........ 1 / 3 / 5
+  Red ................. 3 ........ 2 / 3 / 6
+  Yellow ............. 3 ........ 2 / 4 / 6
+  Green .............. 3 ........ 2 / 4 / 7
+  Dark Blue .......... 2 ........ 3 / 8
+  Railroad .......... 4 ........ 1 / 2 / 3 / 4
+  Utility .......... 2 ........ 1 / 2
+  House on a complete set: +3M rent.  Hotel (on top of a house): +4M rent.
+
+STANDARD REFERENCE — card money values (bank value if played as money)
+  Property: Brown 1M, Light Blue 1M, Pink 2M, Orange 2M, Red 3M, Yellow 3M,
+    Green 4M, Dark Blue 4M, Railroad 2M, Utility 2M.
+  Multicolor (10-color) property wildcard: 0 (no value).
+  Rent card: 1M (two-color) / 3M (10-color wild rent).
+  Pass Go 1M, It's My Birthday 2M, Debt Collector 3M, Sly Deal 3M,
+    Forced Deal 3M, Just Say No 4M, Deal Breaker 5M, Double The Rent 1M,
+    House 3M, Hotel 4M.
+  Money cards: 1M x6, 2M x5, 3M x3, 4M x3, 5M x2, 10M x1.

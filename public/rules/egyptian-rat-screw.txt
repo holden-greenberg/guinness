@@ -1,0 +1,69 @@
+EGYPTIAN RAT SCREW — RULES
+Source: Bicycle Cards, https://bicyclecards.com/how-to-play/egyptian-rat-screw
+
+PLAYERS: 2, 3, 4, or 5+.
+THE PACK: A standard 52-card deck, which can include Jokers (decide before
+you start whether Jokers are in).
+
+OBJECT OF THE GAME
+Win all the cards.
+
+THE DEAL
+Deal the whole deck out one card at a time, face down, evenly to all players.
+Without looking at their cards, each player squares their hand into a neat
+face-down pile in front of them.
+
+THE PLAY
+Starting to the left of the dealer, players take turns pulling the top card
+off their pile and placing it face-up onto a central pile.
+  - If the card played is a NUMBER card (2-10), the next player simply plays
+    their top card, and so on around the table.
+  - When a FACE CARD or ACE (J, Q, K, or A) is played, the next player in
+    sequence must play another face card or an ace for play to continue.
+  - If that next player does NOT play a face card or an ace within their
+    allotted chance, the player who played the last face card or ace wins the
+    round and takes the whole central pile. That winner starts the next round.
+
+THE SLAP RULE
+The slap rule overrides the face-card/ace rule. The first player to slap the
+central pile when a slappable pattern appears wins that round and takes the
+whole pile. If it cannot be determined who slapped first, the player with the
+most fingers on top of the pile wins.
+
+Slappable patterns:
+  - DOUBLE: two cards of equal value in a row.  Ex: 5, 5
+  - SANDWICH: two cards of equal value with one different card between them.
+    Ex: 5, 7, 5
+  - TOP-BOTTOM: a card is played that matches the FIRST (bottom) card of the
+    current pile.
+  - TENS: two cards played in a row (or with one face/ace card between them)
+    that add up to 10. An Ace counts as 1 for this rule. Ex: 3, 7  or  A, K, 9
+  - JOKERS: if Jokers are in play, the pile can be slapped any time a Joker is
+    laid down.
+  - FOUR IN A ROW: four cards in a row in consistent ascending or descending
+    order. Ex: 5, 6, 7, 8  or  Q, K, A, 2
+  - MARRIAGE: a Queen played immediately over or under a King. Ex: Q, K or K, Q
+
+WRONG SLAP PENALTY
+If you slap the pile when it was not slappable, you must add one or two cards
+from the top of your pile to the bottom of the central pile.
+
+RUNNING OUT OF CARDS
+Keep playing even after you run out of cards. As long as you have not just
+made a wrong slap, you may still "slap in" on a slappable pile to win cards
+and get back in. Stay in until one player has every card.
+
+HOW TO KEEP SCORE / WINNING
+The player who ends up with all of the cards wins.
+
+NOTES ON VARIATIONS (very common house rules — only apply these if the players
+say they are using them; they are NOT part of the Bicycle rules above):
+  - COUNTDOWN / TRIBUTE: instead of "one allotted chance", the player facing a
+    face card gets a fixed number of chances to produce a face card or ace:
+    J = 1 chance, Q = 2, K = 3, A = 4. If they fail to play a face/ace within
+    that many cards, the previous face/ace player takes the pile. If they DO
+    play one, the count passes to the next player with the new card's number
+    of chances.
+  - Some groups require the wrong-slapper to give a card to the player whose
+    card was on top, rather than burying cards.
+  - Some groups only allow slaps with an open hand, palm down.

@@ -3,11 +3,15 @@
 // Static files in public/ are served directly by the [assets] binding; any
 // request that doesn't match a file (the /api/* routes) falls through here.
 
+import { GAMES, GAME_BY_ID } from "./games.js";
+
 const PEOPLE = ["matt", "alex", "holden"];
 const PERSON_SET = new Set(PEOPLE);
 const GOAL = 100;
 const MAX_PER_SESSION = 99;
 const NOTE_MAX = 280;
+const QUESTION_MAX = 500;
+const AI_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 
 export default {
   async fetch(request, env) {
@@ -133,6 +137,56 @@ export default {
         }
 
         return json({ error: "method not allowed" }, 405);
+      }
+
+      if (pathname === "/api/games" && method === "GET") {
+        return json({
+          games: GAMES.map((g) => ({ id: g.id, name: g.name, url: g.url })),
+        });
+      }
+
+      if (pathname === "/api/ask" && method === "POST") {
+        const body = await readJson(request);
+        const game = GAME_BY_ID.get(body.gameId);
+        if (!game) return json({ error: "unknown game" }, 400);
+        const question = String(body.question ?? "").trim();
+        if (question.length < 3) {
+          return json({ error: "ask a fuller question" }, 400);
+        }
+        if (question.length > QUESTION_MAX) {
+          return json({ error: `question too long (max ${QUESTION_MAX})` }, 400);
+        }
+
+        const rulesRes = await env.ASSETS.fetch(
+          new URL("/rules/" + game.file, request.url)
+        );
+        const rules = await rulesRes.text();
+
+        const system =
+          `You are the rules referee for the card game "${game.name}". ` +
+          `Answer the player's question using ONLY the rules text below. ` +
+          `Keep it to 1-4 sentences. Quote or cite the specific rule you are ` +
+          `relying on. If the rules text does not settle the question, say ` +
+          `"The rules provided don't cover that" and, if useful, say what the ` +
+          `rules DO say nearby. Never invent a rule.\n\n` +
+          `=== ${game.name} RULES ===\n${rules}`;
+
+        let answer;
+        try {
+          const out = await env.AI.run(AI_MODEL, {
+            messages: [
+              { role: "system", content: system },
+              { role: "user", content: question },
+            ],
+            max_tokens: 400,
+            temperature: 0.2,
+          });
+          answer = (out.response || "").trim();
+        } catch (err) {
+          return json({ error: "the AI is unavailable right now", detail: String(err) }, 503);
+        }
+        if (!answer) return json({ error: "no answer came back" }, 502);
+        return json({ game: { id: game.id, name: game.name, url: game.url }, answer });
       }
     } catch (err) {
       return json({ error: "server error", detail: String(err) }, 500);

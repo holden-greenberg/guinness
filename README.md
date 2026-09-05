@@ -13,6 +13,10 @@ count the current session while at the bar.
 - **History** (`/history`): every night at the bar as a dated row with each
   person's count. Anyone can **Edit** a row (date, counts, note), **+ Add
   session** by hand, or delete one. Lifetime = sum of these rows.
+- **Games** (`/games`): rules for the card games we play, each with a link to
+  the official rules and the full rules text. An **"Ask about the rules"** box
+  answers questions mid-game via Cloudflare Workers AI, grounded only in that
+  game's rules text (`public/rules/<game>.txt`).
 
 **Live:** https://guinness.holdengreenberg.workers.dev
 
@@ -38,6 +42,16 @@ fall through to the Worker:
 | `POST /api/history` | add a session `{ date, matt, alex, holden, note }` |
 | `PATCH /api/history` | edit a session (same body + `id`) |
 | `DELETE /api/history` | `{ id }` |
+| `GET /api/games` | list of games (id, name, official-rules url) |
+| `POST /api/ask` | `{ gameId, question }` → `{ answer }` via Workers AI |
+
+Games and their rules live in [`src/games.js`](src/games.js) (metadata) and
+`public/rules/*.txt` (rules text, served as static files and read by
+`/api/ask` through the `ASSETS` binding). The Q&A model is
+`@cf/meta/llama-3.3-70b-instruct-fp8-fast`; it's told to answer only from the
+supplied rules text and to say so when a question isn't covered. Workers AI
+needs no key or resource — just the `[ai]` binding in `wrangler.toml` — and is
+free at this volume.
 
 `lifetime` = `people.lifetime_start` (a manual fudge, normally 0) + the sum of
 that person's `sessions` rows + any live taps not yet rolled up. The D1 binding

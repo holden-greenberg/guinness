@@ -33,7 +33,22 @@ CONTENT_TYPES = {
     ".svg": "image/svg+xml",
     ".ico": "image/x-icon",
     ".json": "application/json; charset=utf-8",
+    ".txt": "text/plain; charset=utf-8",
 }
+
+# mirrors src/games.js
+GAMES = [
+    {"id": "99", "name": "99 (Ninety-Nine)",
+     "url": "https://bicyclecards.com/how-to-play/99-ninety-nine",
+     "file": "99.txt"},
+    {"id": "egyptian-rat-screw", "name": "Egyptian Rat Screw",
+     "url": "https://bicyclecards.com/how-to-play/egyptian-rat-screw",
+     "file": "egyptian-rat-screw.txt"},
+    {"id": "monopoly-deal", "name": "Monopoly Deal",
+     "url": "https://monopolydealrules.com/index.php?page=general",
+     "file": "monopoly-deal.txt"},
+]
+GAME_BY_ID = {g["id"]: g for g in GAMES}
 
 
 def now_iso():
@@ -265,6 +280,13 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json(get_state())
         if path == "/api/history":
             return self._send_json(get_history())
+        if path == "/api/games":
+            return self._send_json({
+                "games": [
+                    {"id": g["id"], "name": g["name"], "url": g["url"]}
+                    for g in GAMES
+                ]
+            })
         return self._serve_static(path)
 
     def do_POST(self):
@@ -294,6 +316,21 @@ class Handler(BaseHTTPRequestHandler):
             if err:
                 return self._send_json({"error": err}, 400)
             return self._send_json(get_history())
+        if path == "/api/ask":
+            body = self._read_json()
+            game = GAME_BY_ID.get(body.get("gameId"))
+            if not game:
+                return self._send_json({"error": "unknown game"}, 400)
+            q = str(body.get("question", "")).strip()
+            if len(q) < 3:
+                return self._send_json({"error": "ask a fuller question"}, 400)
+            # Workers AI only runs on the deployed site; stub it locally.
+            return self._send_json({
+                "game": {"id": game["id"], "name": game["name"], "url": game["url"]},
+                "answer": "(local dev) The AI rules answer only runs on the "
+                          "deployed Cloudflare site. Your question reached the "
+                          f"server fine for \"{game['name']}\".",
+            })
         return self._send_json({"error": "not found"}, 404)
 
     def do_PATCH(self):
