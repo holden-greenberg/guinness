@@ -1,0 +1,10 @@
+name = "guinness"
+pages_build_output_dir = "public"
+compatibility_date = "2026-01-01"
+
+# Created with:  wrangler d1 create guinness
+# Paste the printed database_id below, commit, and Cloudflare Pages will bind it.
+[[d1_databases]]
+binding = "DB"
+database_name = "guinness"
+database_id = "REPLACE_WITH_ID_FROM_wrangler_d1_create"
