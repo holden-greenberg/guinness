@@ -591,26 +591,35 @@ async function rankWithAI(env, shortlist, input) {
     .join("\n");
 
   const system =
-    `You help three friends at a bar pick where to get dinner. From the ` +
-    `numbered candidate list, choose exactly 3 and rank them best first for ` +
-    `these constraints:\n` +
+    `You help three friends drinking at a bar pick where to get dinner. ` +
+    `From the numbered candidate list, choose exactly 3 and rank them best ` +
+    `first for these constraints:\n` +
     `- hunger: ${input.hunger}\n` +
     `- budget: ${budgetLabels}\n` +
     `- cuisines wanted: ${cuisineLabels}\n` +
     `- craving: ${input.craving || "(none stated)"}\n` +
     `- max walk: ${input.maxWalkMin} min (delivery options may be farther)\n\n` +
-    `Reply with ONLY a JSON array of exactly 3 objects, each ` +
-    `{"name": "<exact name from the list>", "reason": "<max 140 chars, plain ` +
-    `and practical, name the deciding factor>"}. Pick only from the list. ` +
-    `Never invent a place.\n\nCANDIDATES:\n${lines}`;
+    `Reply with ONLY a JSON array of exactly 3 objects: ` +
+    `{"name": "<exact name from the list>", "reason": "<one sentence, 12-22 ` +
+    `words>"}. Each reason must be specific and practical and cite at least ` +
+    `two concrete facts from that candidate's row (walk time, cuisine, whether ` +
+    `it's open, whether it delivers) tied to the constraints. No generic ` +
+    `phrases like "good option" or "big restaurant". Example reason: ` +
+    `"Only 3 minutes away, open now, and their pad see ew travels fine if you ` +
+    `end up getting it delivered." Pick only from the list; never invent a ` +
+    `place.\n\nCANDIDATES:\n${lines}`;
 
   const out = await env.AI.run(AI_MODEL, {
     messages: [
       { role: "system", content: system },
-      { role: "user", content: "Give me the 3 picks as JSON." },
+      {
+        role: "user",
+        content:
+          "Give me the 3 ranked picks as a JSON array, each with a specific one-sentence reason.",
+      },
     ],
-    max_tokens: 500,
-    temperature: 0.3,
+    max_tokens: 600,
+    temperature: 0.4,
   });
 
   const text = aiText(out).trim();
