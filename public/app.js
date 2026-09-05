@@ -4,6 +4,7 @@ const $app = document.getElementById("app");
 const $session = document.getElementById("session");
 const $sessionTotal = document.getElementById("sessionTotal");
 const $resetBtn = document.getElementById("resetBtn");
+const $saveBtn = document.getElementById("saveBtn");
 const $status = document.getElementById("status");
 
 const POLL_MS = 4000;
@@ -63,6 +64,7 @@ function render() {
   }
 
   $sessionTotal.textContent = state.tonightTotal;
+  $saveBtn.hidden = state.tonightTotal === 0;
   $session.hidden = false;
 }
 
@@ -118,7 +120,7 @@ async function undoDrink(personId) {
 
 async function resetTonight() {
   if (busy) return;
-  if (!confirm("Start a fresh session? Tonight's counters go back to 0. Lifetime totals stay.")) {
+  if (!confirm("Start a fresh session? Tonight's counters go back to 0 without being saved. Lifetime totals stay.")) {
     return;
   }
   busy = true;
@@ -128,6 +130,27 @@ async function resetTonight() {
     setStatus("New session started");
   } catch (e) {
     setStatus("Reset failed — try again", true);
+  } finally {
+    busy = false;
+  }
+}
+
+async function saveTonight() {
+  if (busy) return;
+  const summary = state.people
+    .filter((p) => p.tonight > 0)
+    .map((p) => `${p.name.split(" ")[0]} ${p.tonight}`)
+    .join(", ");
+  if (!confirm(`Save tonight to the history page as today's session?\n\n${summary}\n\nThe tonight counter resets; lifetime totals are unchanged.`)) {
+    return;
+  }
+  busy = true;
+  try {
+    state = await api("/api/log-tonight", {});
+    render();
+    setStatus("Saved to history ✓");
+  } catch (e) {
+    setStatus("Save failed — try again", true);
   } finally {
     busy = false;
   }
@@ -146,6 +169,7 @@ async function poll() {
 }
 
 $resetBtn.addEventListener("click", resetTonight);
+$saveBtn.addEventListener("click", saveTonight);
 
 (async function init() {
   try {

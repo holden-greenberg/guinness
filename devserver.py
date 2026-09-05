@@ -60,12 +60,26 @@ def init_db():
     conn.close()
 
 
-def get_state():
-    conn = db()
+PEOPLE = ["matt", "alex", "holden"]
+PERSON_SET = set(PEOPLE)
+MAX_PER_SESSION = 99
+NOTE_MAX = 280
+
+
+def _tonight_since(conn):
     row = conn.execute(
         "SELECT value FROM meta WHERE key = 'tonight_since'"
     ).fetchone()
-    since = row["value"] if row else "1970-01-01T00:00:00.000Z"
+    return row["value"] if row else "1970-01-01T00:00:00.000Z"
+
+
+def get_state():
+    conn = db()
+    since = _tonight_since(conn)
+    sums = conn.execute(
+        "SELECT COALESCE(SUM(matt),0) matt, COALESCE(SUM(alex),0) alex, "
+        "COALESCE(SUM(holden),0) holden FROM sessions"
+    ).fetchone()
     people = []
     for p in conn.execute("SELECT * FROM people ORDER BY sort"):
         app_count = conn.execute(
@@ -78,7 +92,7 @@ def get_state():
         people.append({
             "id": p["id"],
             "name": p["name"],
-            "lifetime": p["lifetime_start"] + app_count,
+            "lifetime": p["lifetime_start"] + sums[p["id"]] + app_count,
             "tonight": tonight,
         })
     conn.close()
@@ -90,7 +104,108 @@ def get_state():
     }
 
 
-PEOPLE = {"matt", "alex", "holden"}
+def get_history():
+    conn = db()
+    sessions = [
+        dict(r)
+        for r in conn.execute(
+            "SELECT id, date, matt, alex, holden, note FROM sessions ORDER BY date, id"
+        )
+    ]
+    names = [dict(r) for r in conn.execute(
+        "SELECT id, name FROM people ORDER BY sort"
+    )]
+    conn.close()
+    totals = {k: sum(s[k] for s in sessions) for k in PEOPLE}
+    return {"people": names, "sessions": sessions, "totals": totals}
+
+
+def _clean_session(body):
+    date = str(body.get("date", ""))
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+        return None, "date must be YYYY-MM-DD"
+    out = {"date": date, "note": str(body.get("note", ""))[:NOTE_MAX]}
+    for pid in PEOPLE:
+        try:
+            n = int(body.get(pid))
+        except (TypeError, ValueError):
+            return None, f"{pid} count must be an integer"
+        if n < 0 or n > MAX_PER_SESSION:
+            return None, f"{pid} count must be 0-{MAX_PER_SESSION}"
+        out[pid] = n
+    return out, None
+
+
+def add_session(body):
+    c, err = _clean_session(body)
+    if err:
+        return err
+    conn = db()
+    conn.execute(
+        "INSERT INTO sessions (date, matt, alex, holden, note) VALUES (?,?,?,?,?)",
+        (c["date"], c["matt"], c["alex"], c["holden"], c["note"]),
+    )
+    conn.commit()
+    conn.close()
+    return None
+
+
+def update_session(body):
+    try:
+        sid = int(body.get("id"))
+    except (TypeError, ValueError):
+        return "bad id"
+    c, err = _clean_session(body)
+    if err:
+        return err
+    conn = db()
+    cur = conn.execute(
+        "UPDATE sessions SET date=?, matt=?, alex=?, holden=?, note=? WHERE id=?",
+        (c["date"], c["matt"], c["alex"], c["holden"], c["note"], sid),
+    )
+    conn.commit()
+    changed = cur.rowcount
+    conn.close()
+    return None if changed else "not found"
+
+
+def delete_session(body):
+    try:
+        sid = int(body.get("id"))
+    except (TypeError, ValueError):
+        return "bad id"
+    conn = db()
+    conn.execute("DELETE FROM sessions WHERE id=?", (sid,))
+    conn.commit()
+    conn.close()
+    return None
+
+
+def log_tonight():
+    conn = db()
+    since = _tonight_since(conn)
+    counts = {
+        pid: conn.execute(
+            "SELECT COUNT(*) c FROM drinks WHERE person_id=? AND created_at>=?",
+            (pid, since),
+        ).fetchone()["c"]
+        for pid in PEOPLE
+    }
+    if all(v == 0 for v in counts.values()):
+        conn.close()
+        return "nothing to log tonight"
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    conn.execute(
+        "INSERT INTO sessions (date, matt, alex, holden, note) VALUES (?,?,?,?,'')",
+        (today, counts["matt"], counts["alex"], counts["holden"]),
+    )
+    conn.execute("DELETE FROM drinks WHERE created_at >= ?", (since,))
+    conn.execute(
+        "UPDATE meta SET value = ? WHERE key = 'tonight_since'", (now_iso(),)
+    )
+    conn.commit()
+    conn.close()
+    return None
 
 
 def add_drink(person):
@@ -148,25 +263,53 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split("?", 1)[0]
         if path == "/api/state":
             return self._send_json(get_state())
+        if path == "/api/history":
+            return self._send_json(get_history())
         return self._serve_static(path)
 
     def do_POST(self):
         path = self.path.split("?", 1)[0]
         if path == "/api/drink":
             person = self._read_json().get("person")
-            if person not in PEOPLE:
+            if person not in PERSON_SET:
                 return self._send_json({"error": "unknown person"}, 400)
             add_drink(person)
             return self._send_json(get_state())
         if path == "/api/undo":
             person = self._read_json().get("person")
-            if person not in PEOPLE:
+            if person not in PERSON_SET:
                 return self._send_json({"error": "unknown person"}, 400)
             undo_drink(person)
             return self._send_json(get_state())
         if path == "/api/reset-tonight":
             reset_tonight()
             return self._send_json(get_state())
+        if path == "/api/log-tonight":
+            err = log_tonight()
+            if err:
+                return self._send_json({"error": err}, 400)
+            return self._send_json(get_state())
+        if path == "/api/history":
+            err = add_session(self._read_json())
+            if err:
+                return self._send_json({"error": err}, 400)
+            return self._send_json(get_history())
+        return self._send_json({"error": "not found"}, 404)
+
+    def do_PATCH(self):
+        if self.path.split("?", 1)[0] == "/api/history":
+            err = update_session(self._read_json())
+            if err:
+                return self._send_json({"error": err}, 400 if err != "not found" else 404)
+            return self._send_json(get_history())
+        return self._send_json({"error": "not found"}, 404)
+
+    def do_DELETE(self):
+        if self.path.split("?", 1)[0] == "/api/history":
+            err = delete_session(self._read_json())
+            if err:
+                return self._send_json({"error": err}, 400)
+            return self._send_json(get_history())
         return self._send_json({"error": "not found"}, 404)
 
     def _serve_static(self, path):
@@ -174,8 +317,11 @@ class Handler(BaseHTTPRequestHandler):
         if not re.fullmatch(r"[A-Za-z0-9_./-]+", rel) or ".." in rel:
             return self._send_json({"error": "bad path"}, 400)
         target = (PUBLIC / rel).resolve()
+        # match Cloudflare's html_handling: "/history" -> "/history.html"
+        if not target.is_file() and (PUBLIC / (rel + ".html")).is_file():
+            target = (PUBLIC / (rel + ".html")).resolve()
         if not str(target).startswith(str(PUBLIC.resolve())) or not target.is_file():
-            target = PUBLIC / "index.html"  # SPA-ish fallback
+            target = PUBLIC / "index.html"  # fallback
         data = target.read_bytes()
         self.send_response(200)
         self.send_header(
