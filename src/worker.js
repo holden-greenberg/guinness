@@ -247,8 +247,11 @@ export default {
 
         let ranked = null;
         let aiErr = null;
+        let aiRaw = null;
         try {
-          ranked = await rankWithAI(env, shortlist, input);
+          const r = await rankWithAI(env, shortlist, input);
+          ranked = r.picks;
+          aiRaw = r.raw;
         } catch (err) {
           aiErr = String(err && err.message ? err.message : err);
           console.warn("[food] AI rank failed:", aiErr);
@@ -278,6 +281,7 @@ export default {
               shortlist: shortlist.map((c) => c.name),
               aiRanked: ranked ? ranked.length : null,
               aiErr,
+              aiRaw,
             },
           });
         }
@@ -609,9 +613,14 @@ async function rankWithAI(env, shortlist, input) {
     temperature: 0.3,
   });
 
-  const text = (out.response || "").trim();
+  const text = aiText(out).trim();
   const slice = extractJsonArray(text);
-  if (!slice) throw new Error("no JSON array in AI reply: " + text.slice(0, 160));
+  if (!slice) {
+    throw new Error(
+      "no JSON array in AI reply: " +
+        (text.slice(0, 160) || JSON.stringify(out).slice(0, 200))
+    );
+  }
 
   let arr;
   try {
@@ -626,7 +635,25 @@ async function rankWithAI(env, shortlist, input) {
     .filter((x) => x && typeof x.name === "string")
     .map((x) => ({ name: x.name, reason: String(x.reason || "") }));
   if (!picks.length) throw new Error("AI array had no usable picks");
-  return picks;
+  return { picks, raw: text.slice(0, 300) };
+}
+
+// Workers AI text output has shifted shape across model/runtime versions.
+// Pull a plain string out of whatever env.AI.run returned.
+function aiText(out) {
+  if (typeof out === "string") return out;
+  const r = out?.response ?? out?.result?.response ?? out?.result ?? out?.output;
+  if (typeof r === "string") return r;
+  if (r && typeof r === "object") {
+    if (typeof r.response === "string") return r.response;
+    if (typeof r.content === "string") return r.content;
+    if (typeof r.text === "string") return r.text;
+    if (Array.isArray(r.content)) {
+      return r.content.map((c) => (typeof c === "string" ? c : c?.text ?? "")).join("");
+    }
+  }
+  if (Array.isArray(out?.choices)) return out.choices[0]?.message?.content ?? "";
+  return "";
 }
 
 // First balanced [ ... ] in a string (handles trailing prose / code fences).
