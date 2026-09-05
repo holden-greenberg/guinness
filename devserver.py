@@ -56,7 +56,13 @@ GAME_BY_ID = {g["id"]: g for g in GAMES}
 
 # --- Food tab (mirrors src/food.js) ---------------------------------------
 BAR = {"lat": 40.7864, "lng": -73.9764}
-OVERPASS = "https://overpass-api.de/api/interpreter"
+OVERPASS_ENDPOINTS = [
+    "https://overpass-api.de/api/interpreter",
+    "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass.private.coffee/api/interpreter",
+    "https://overpass.osm.jp/api/interpreter",
+]
 FOOD_MATCH = {
     "pizza": {"pizza"},
     "burgers": {"burger"},
@@ -118,19 +124,25 @@ def food_pick(body):
         f'(around:{radius},{BAR["lat"]},{BAR["lng"]});'
         "out center 60;"
     )
-    try:
-        req = urllib.request.Request(
-            OVERPASS,
-            data=urllib.parse.urlencode({"data": query}).encode(),
-            headers={"User-Agent": "guinness-dev/1.0"},
-        )
-        # Dev-only shim: macOS system Python often lacks CA certs. The deployed
-        # Worker uses fetch() with proper TLS; Overpass data is public read-only.
-        ctx = ssl._create_unverified_context()
-        with urllib.request.urlopen(req, timeout=25, context=ctx) as r:
-            elements = json.loads(r.read()).get("elements", [])
-    except Exception as e:  # noqa: BLE001
-        return {"error": f"couldn't reach OpenStreetMap: {e}"}, 503
+    # Dev-only shim: macOS system Python often lacks CA certs. The deployed
+    # Worker uses fetch() with proper TLS; Overpass data is public read-only.
+    ctx = ssl._create_unverified_context()
+    data = urllib.parse.urlencode({"data": query}).encode()
+    elements = None
+    last_err = "no endpoints"
+    for endpoint in OVERPASS_ENDPOINTS:
+        try:
+            req = urllib.request.Request(
+                endpoint, data=data,
+                headers={"User-Agent": "guinness-dead-poet/1.0 (dev)"},
+            )
+            with urllib.request.urlopen(req, timeout=20, context=ctx) as r:
+                elements = json.loads(r.read()).get("elements", [])
+            break
+        except Exception as e:  # noqa: BLE001
+            last_err = f"{endpoint}: {e}"
+    if elements is None:
+        return {"error": f"couldn't reach OpenStreetMap ({last_err})"}, 503
 
     seen = set()
     cands = []
