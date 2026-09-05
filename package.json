@@ -10,6 +10,6 @@
     "deploy": "wrangler pages deploy public"
   },
   "devDependencies": {
-    "wrangler": "^3.90.0"
+    "wrangler": "^4.129.0"
   }
 }
