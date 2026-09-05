@@ -1,6 +1,7 @@
 node_modules/
 .wrangler/
 .dev.vars
+.dev.sqlite
 .DS_Store
 dist/
 *.log
