@@ -7,4 +7,4 @@ compatibility_date = "2026-01-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "guinness"
-database_id = "REPLACE_WITH_ID_FROM_wrangler_d1_create"
+database_id = "27e361cb-fd24-497d-9474-535fc98a35e3"
