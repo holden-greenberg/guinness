@@ -25,14 +25,14 @@ CREATE TABLE meta (
   value TEXT NOT NULL
 );
 
--- lifetime_start values below are placeholders. Replace them with the real
--- historical counts (Holden will supply the full session history), then
--- re-apply this file, OR just UPDATE them in place:
---   wrangler d1 execute guinness --remote --command "UPDATE people SET lifetime_start=42 WHERE id='matt'"
+-- lifetime_start = Guinnesses logged at the bar before this app existed,
+-- tallied from 15 sessions (1/1/25 through 7/24/26). The app adds taps on
+-- top of these. To adjust one:
+--   wrangler d1 execute guinness --remote --command "UPDATE people SET lifetime_start=80 WHERE id='matt'"
 INSERT INTO people (id, name, lifetime_start, sort) VALUES
-  ('matt',   'Matt Stern',       0, 1),
-  ('alex',   'Alex Biener',      0, 2),
-  ('holden', 'Holden Greenberg', 0, 3);
+  ('matt',   'Matt Stern',       79, 1),
+  ('alex',   'Alex Biener',      96, 2),
+  ('holden', 'Holden Greenberg', 88, 3);
 
 -- "Tonight" = every drink logged at or after this timestamp. The Reset button
 -- moves it to "now". Starts in 1970 so the first night counts everything.
