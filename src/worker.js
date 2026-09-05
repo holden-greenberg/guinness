@@ -41,7 +41,8 @@ const BUDGET_LABEL = { low: "$", mid: "$$", high: "$$$" };
 
 export default {
   async fetch(request, env) {
-    const { pathname } = new URL(request.url);
+    const url = new URL(request.url);
+    const { pathname } = url;
     const method = request.method;
 
     try {
@@ -229,7 +230,12 @@ export default {
         }
 
         const candidates = filterCandidates(elements, input);
-        if (!candidates.length) return json({ picks: [] });
+        const debug = url.searchParams.get("debug");
+        if (!candidates.length) {
+          return json(
+            debug ? { picks: [], _debug: { elements: elements.length, candidates: 0 } } : { picks: [] }
+          );
+        }
 
         const exclude = new Set(
           (Array.isArray(input.exclude) ? input.exclude : []).map((s) =>
@@ -240,10 +246,12 @@ export default {
         const shortlist = (trimmed.length ? trimmed : candidates).slice(0, 15);
 
         let ranked = null;
+        let aiErr = null;
         try {
           ranked = await rankWithAI(env, shortlist, input);
-        } catch {
-          ranked = null;
+        } catch (err) {
+          aiErr = String(err && err.message ? err.message : err);
+          console.warn("[food] AI rank failed:", aiErr);
         }
 
         const byName = new Map(shortlist.map((c) => [c.name.toLowerCase(), c]));
@@ -260,6 +268,18 @@ export default {
           if (!picks.some((p) => p.name === c.name)) {
             picks.push(shapePick(c, input, fallbackReason(c)));
           }
+        }
+        if (debug) {
+          return json({
+            picks,
+            _debug: {
+              elements: elements.length,
+              candidates: candidates.length,
+              shortlist: shortlist.map((c) => c.name),
+              aiRanked: ranked ? ranked.length : null,
+              aiErr,
+            },
+          });
         }
         return json({ picks });
       }
@@ -447,7 +467,11 @@ async function raceOverpass(query) {
     }).then(async (res) => {
       if (!res.ok) throw new Error(`${endpoint} → HTTP ${res.status}`);
       const data = await res.json();
-      if (!Array.isArray(data.elements)) throw new Error(`${endpoint} → no elements`);
+      // A healthy mirror near a dense area returns dozens; a broken/empty
+      // mirror answers fast with []. Don't let that win the race.
+      if (!Array.isArray(data.elements) || data.elements.length < 5) {
+        throw new Error(`${endpoint} → thin result (${data.elements?.length ?? "none"})`);
+      }
       return data.elements;
     })
   );
@@ -586,13 +610,45 @@ async function rankWithAI(env, shortlist, input) {
   });
 
   const text = (out.response || "").trim();
-  const match = text.match(/\[[\s\S]*\]/);
-  if (!match) return null;
-  const arr = JSON.parse(match[0]);
-  if (!Array.isArray(arr)) return null;
-  return arr
+  const slice = extractJsonArray(text);
+  if (!slice) throw new Error("no JSON array in AI reply: " + text.slice(0, 160));
+
+  let arr;
+  try {
+    arr = JSON.parse(slice);
+  } catch (e) {
+    throw new Error("bad JSON from AI: " + slice.slice(0, 160));
+  }
+  if (!Array.isArray(arr) && Array.isArray(arr?.picks)) arr = arr.picks;
+  if (!Array.isArray(arr)) throw new Error("AI reply was not an array");
+
+  const picks = arr
     .filter((x) => x && typeof x.name === "string")
     .map((x) => ({ name: x.name, reason: String(x.reason || "") }));
+  if (!picks.length) throw new Error("AI array had no usable picks");
+  return picks;
+}
+
+// First balanced [ ... ] in a string (handles trailing prose / code fences).
+function extractJsonArray(text) {
+  const start = text.indexOf("[");
+  if (start === -1) return null;
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === "\\") esc = true;
+      else if (ch === '"') inStr = false;
+      continue;
+    }
+    if (ch === '"') inStr = true;
+    else if (ch === "[") depth++;
+    else if (ch === "]" && --depth === 0) return text.slice(start, i + 1);
+  }
+  return null;
 }
 
 // Current weekday + minutes-past-midnight in the bar's timezone.
