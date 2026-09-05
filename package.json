@@ -4,10 +4,10 @@
   "private": true,
   "description": "The Dead Poet Guinness Challenge tracker for Matt, Alex, and Holden",
   "scripts": {
-    "dev": "wrangler pages dev public",
+    "dev": "wrangler dev",
     "db:init:local": "wrangler d1 execute guinness --local --file=./schema.sql",
     "db:init:remote": "wrangler d1 execute guinness --remote --file=./schema.sql",
-    "deploy": "wrangler pages deploy public"
+    "deploy": "wrangler deploy"
   },
   "devDependencies": {
     "wrangler": "^4.129.0"

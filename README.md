@@ -10,43 +10,40 @@ count the current session while at the bar.
 - **Undo** removes your most recent tap (mis-taps happen).
 - **Reset tonight** starts a fresh session. Lifetime totals are never touched.
 
+**Live:** https://guinness.holdengreenberg.workers.dev
+
 ## Stack
 
 | Piece | What |
 |---|---|
 | Frontend | Plain HTML/CSS/JS in [`public/`](public/) — no build step |
-| API | Cloudflare Pages Functions in [`functions/api/`](functions/api/) |
+| API | One Cloudflare Worker, [`src/worker.js`](src/worker.js) |
 | Data | Cloudflare D1 (SQLite) — schema in [`schema.sql`](schema.sql) |
 
-API routes: `GET /api/state`, `POST /api/drink`, `POST /api/undo`, `POST /api/reset-tonight`.
+Static files in `public/` are served directly by the Worker's `[assets]`
+binding; requests that don't match a file fall through to the Worker, which
+handles `GET /api/state`, `POST /api/drink`, `POST /api/undo`,
+`POST /api/reset-tonight`. The D1 binding (`DB`) is declared in
+[`wrangler.toml`](wrangler.toml), so it's applied on every deploy — no
+dashboard step.
 
-## One-time deploy
-
-Needs [Node.js](https://nodejs.org) installed (for the Wrangler CLI) and a free
-Cloudflare account.
+## Deploy
 
 ```bash
 npm install
-npx wrangler login
-
-# Create the database, then paste the printed database_id into wrangler.toml
-npx wrangler d1 create guinness
-
-# Load the tables + the three drinkers
-npm run db:init:remote
+npx wrangler deploy        # or: npm run deploy
 ```
 
-Push this repo to GitHub, then in the Cloudflare dashboard:
+The repo is also connected to Cloudflare (Workers Builds), so **every `git push`
+to `main` redeploys automatically** — the build runs `npx wrangler deploy`.
 
-1. **Workers & Pages → Create → Pages → Connect to Git** → pick this repo.
-2. Build settings: **Framework preset: none**, **Build command: empty**,
-   **Build output directory: `public`**.
-3. After the first deploy: **Settings → Bindings → Add → D1 database** →
-   variable name **`DB`**, database **guinness**. Redeploy.
-4. Share the `*.pages.dev` URL with the group. Add it to the Home Screen for an
-   app-like icon.
+First-time-only database setup (already done for the live instance):
 
-Every `git push` to the default branch redeploys automatically.
+```bash
+npx wrangler login
+npx wrangler d1 create guinness          # paste the id into wrangler.toml
+npm run db:init:remote                   # create tables + seed the 3 drinkers
+```
 
 ## Setting the historical counts
 
@@ -64,5 +61,9 @@ npx wrangler d1 execute guinness --remote \
 
 ```bash
 npm run db:init:local   # seed the local SQLite copy
-npm run dev             # serves at http://localhost:8788
+npm run dev             # wrangler dev, with a local D1
 ```
+
+`devserver.py` is a separate, dependency-free preview server (Python stdlib
+only) for machines without Node — it serves `public/` and reimplements the
+same four routes against `.dev.sqlite`.

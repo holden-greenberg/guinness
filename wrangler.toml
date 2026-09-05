@@ -1,9 +1,13 @@
 name = "guinness"
-pages_build_output_dir = "public"
+main = "src/worker.js"
 compatibility_date = "2026-01-01"
 
+# Static site. Requests that match a file in public/ are served directly;
+# everything else (the /api/* routes) falls through to the Worker.
+[assets]
+directory = "./public"
+
 # Created with:  wrangler d1 create guinness
-# Paste the printed database_id below, commit, and Cloudflare Pages will bind it.
 [[d1_databases]]
 binding = "DB"
 database_name = "guinness"

@@ -6,7 +6,7 @@ that stack needs the Wrangler CLI (Node.js). This script uses only the Python
 standard library so the app can be previewed on a machine without Node.
 
 It serves the static site from public/ and reimplements the four API routes
-from functions/api/ against a local SQLite file (.dev.sqlite, git-ignored),
+from src/worker.js against a local SQLite file (.dev.sqlite, git-ignored),
 seeded from schema.sql on first run.
 
     python3 devserver.py [--port 8788]
