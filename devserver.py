@@ -14,8 +14,12 @@ seeded from schema.sql on first run.
 
 import argparse
 import json
+import math
 import re
 import sqlite3
+import ssl
+import urllib.parse
+import urllib.request
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -49,6 +53,130 @@ GAMES = [
      "file": "monopoly-deal.txt"},
 ]
 GAME_BY_ID = {g["id"]: g for g in GAMES}
+
+# --- Food tab (mirrors src/food.js) ---------------------------------------
+BAR = {"lat": 40.7864, "lng": -73.9764}
+OVERPASS = "https://overpass-api.de/api/interpreter"
+FOOD_MATCH = {
+    "pizza": {"pizza"},
+    "burgers": {"burger"},
+    "deli": {"sandwich", "deli"},
+    "bagels": {"bagel"},
+    "mexican": {"mexican", "taco", "tex-mex", "burrito"},
+    "chinese": {"chinese", "cantonese", "szechuan"},
+    "thai": {"thai"},
+    "sushi": {"sushi", "japanese"},
+    "ramen": {"ramen", "noodle", "udon"},
+    "korean": {"korean"},
+    "vietnamese": {"vietnamese"},
+    "indian": {"indian", "pakistani"},
+    "italian": {"italian", "pasta"},
+    "american": {"american", "diner", "breakfast"},
+    "wings": {"chicken", "wings", "fried_chicken"},
+    "bbq": {"barbecue"},
+    "steak": {"steak_house"},
+    "seafood": {"seafood"},
+    "med": {"mediterranean", "greek"},
+    "mideast": {"middle_eastern", "falafel", "lebanese", "turkish"},
+    "halal": {"kebab", "halal"},
+    "french": {"french"},
+    "healthy": {"salad", "vegetarian", "vegan", "poke", "bowl"},
+    "dessert": {"ice_cream", "dessert", "cake", "donut"},
+}
+
+
+def _haversine(a, b):
+    r = 6371000
+    p = math.pi / 180
+    dlat = (b["lat"] - a["lat"]) * p
+    dlng = (b["lng"] - a["lng"]) * p
+    s = (math.sin(dlat / 2) ** 2
+         + math.cos(a["lat"] * p) * math.cos(b["lat"] * p) * math.sin(dlng / 2) ** 2)
+    return 2 * r * math.asin(math.sqrt(s))
+
+
+def _walk_min(meters):
+    return max(1, round((meters * 1.3) / 80))
+
+
+def food_pick(body):
+    """Local stand-in for /api/food: real Overpass data, ranked by distance
+    (the deployed Worker ranks the shortlist with Workers AI)."""
+    try:
+        max_walk = int(body.get("maxWalkMin"))
+    except (TypeError, ValueError):
+        max_walk = 12
+    max_walk = min(25, max(5, max_walk))
+    chips = [c for c in (body.get("cuisines") or []) if c in FOOD_MATCH]
+    exclude = {str(x).lower() for x in (body.get("exclude") or [])}
+    wanted = set().union(*(FOOD_MATCH[c] for c in chips)) if chips else set()
+
+    radius = min(2200, max(1000, max_walk * 80))
+    query = (
+        "[out:json][timeout:20];"
+        f'nwr["amenity"~"^(restaurant|fast_food|cafe)$"]'
+        f'(around:{radius},{BAR["lat"]},{BAR["lng"]});'
+        "out center 60;"
+    )
+    try:
+        req = urllib.request.Request(
+            OVERPASS,
+            data=urllib.parse.urlencode({"data": query}).encode(),
+            headers={"User-Agent": "guinness-dev/1.0"},
+        )
+        # Dev-only shim: macOS system Python often lacks CA certs. The deployed
+        # Worker uses fetch() with proper TLS; Overpass data is public read-only.
+        ctx = ssl._create_unverified_context()
+        with urllib.request.urlopen(req, timeout=25, context=ctx) as r:
+            elements = json.loads(r.read()).get("elements", [])
+    except Exception as e:  # noqa: BLE001
+        return {"error": f"couldn't reach OpenStreetMap: {e}"}, 503
+
+    seen = set()
+    cands = []
+    for el in elements:
+        tags = el.get("tags") or {}
+        name = (tags.get("name") or "").strip()
+        if not name or name.lower() in seen or name.lower() in exclude:
+            continue
+        lat = el.get("lat") or (el.get("center") or {}).get("lat")
+        lng = el.get("lon") or (el.get("center") or {}).get("lon")
+        if lat is None or lng is None:
+            continue
+        parts = [p.strip() for p in (tags.get("cuisine") or "").lower().split(";") if p.strip()]
+        if wanted and not (set(parts) & wanted):
+            continue
+        meters = _haversine(BAR, {"lat": lat, "lng": lng})
+        wmin = _walk_min(meters)
+        delivers = tags.get("delivery") == "yes"
+        if wmin > max_walk and not delivers:
+            continue
+        seen.add(name.lower())
+        label = ", ".join(p.replace("_", " ").title() for p in parts[:2]) or (
+            "Café" if tags.get("amenity") == "cafe"
+            else "Fast food" if tags.get("amenity") == "fast_food"
+            else "Restaurant")
+        modes = (["walk"] if wmin <= max_walk else []) + (["delivery"] if delivers else [])
+        cands.append({
+            "name": name,
+            "cuisine": label,
+            "walkMin": wmin,
+            "_m": meters,
+            "modes": modes or ["walk"],
+            "hours": "unknown",
+            "reason": f"{wmin} min walk"
+                      + (f", {label.lower()}" if parts else "")
+                      + (", delivers" if delivers else ""),
+            "mapsUrl": "https://www.google.com/maps/search/?api=1&query="
+                       + urllib.parse.quote(f"{name} @{lat},{lng}"),
+            "orderUrl": "https://www.google.com/search?q="
+                        + urllib.parse.quote(f"{name} delivery order"),
+            "phone": tags.get("phone") or tags.get("contact:phone"),
+        })
+
+    cands.sort(key=lambda c: c["_m"])
+    picks = [{k: v for k, v in c.items() if k != "_m"} for c in cands[:3]]
+    return {"picks": picks}, 200
 
 
 def now_iso():
@@ -331,6 +459,9 @@ class Handler(BaseHTTPRequestHandler):
                           "deployed Cloudflare site. Your question reached the "
                           f"server fine for \"{game['name']}\".",
             })
+        if path == "/api/food":
+            result, status = food_pick(self._read_json())
+            return self._send_json(result, status)
         return self._send_json({"error": "not found"}, 404)
 
     def do_PATCH(self):

@@ -4,6 +4,14 @@
 // request that doesn't match a file (the /api/* routes) falls through here.
 
 import { GAMES, GAME_BY_ID } from "./games.js";
+import {
+  BAR,
+  CUISINE_BY_ID,
+  haversine,
+  walkMinutes,
+  mapsUrl,
+  orderUrl,
+} from "./food.js";
 
 const PEOPLE = ["matt", "alex", "holden"];
 const PERSON_SET = new Set(PEOPLE);
@@ -11,7 +19,17 @@ const GOAL = 100;
 const MAX_PER_SESSION = 99;
 const NOTE_MAX = 280;
 const QUESTION_MAX = 500;
+const CRAVING_MAX = 200;
 const AI_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
+
+// Free, keyless restaurant data for the Food tab.
+const OVERPASS_ENDPOINTS = [
+  "https://overpass-api.de/api/interpreter",
+  "https://overpass.kumi.systems/api/interpreter",
+];
+const HUNGER_SET = new Set(["snack", "meal", "feast"]);
+const BUDGET_SET = new Set(["low", "mid", "high"]);
+const BUDGET_LABEL = { low: "$", mid: "$$", high: "$$$" };
 
 export default {
   async fetch(request, env) {
@@ -188,6 +206,55 @@ export default {
         if (!answer) return json({ error: "no answer came back" }, 502);
         return json({ game: { id: game.id, name: game.name, url: game.url }, answer });
       }
+
+      if (pathname === "/api/food" && method === "POST") {
+        const input = readFoodInput(await readJson(request));
+
+        let elements;
+        try {
+          elements = await overpassRestaurants(input.maxWalkMin);
+        } catch (err) {
+          return json(
+            { error: "couldn't reach the restaurant map right now", detail: String(err) },
+            503
+          );
+        }
+
+        const candidates = filterCandidates(elements, input);
+        if (!candidates.length) return json({ picks: [] });
+
+        const exclude = new Set(
+          (Array.isArray(input.exclude) ? input.exclude : []).map((s) =>
+            String(s).toLowerCase()
+          )
+        );
+        const trimmed = candidates.filter((c) => !exclude.has(c.name.toLowerCase()));
+        const shortlist = (trimmed.length ? trimmed : candidates).slice(0, 15);
+
+        let ranked = null;
+        try {
+          ranked = await rankWithAI(env, shortlist, input);
+        } catch {
+          ranked = null;
+        }
+
+        const byName = new Map(shortlist.map((c) => [c.name.toLowerCase(), c]));
+        const picks = [];
+        for (const r of ranked || []) {
+          const c = byName.get(String(r.name || "").toLowerCase());
+          if (c && !picks.some((p) => p.name === c.name)) {
+            picks.push(shapePick(c, input, String(r.reason || "").slice(0, 200)));
+          }
+          if (picks.length === 3) break;
+        }
+        for (const c of shortlist) {
+          if (picks.length === 3) break;
+          if (!picks.some((p) => p.name === c.name)) {
+            picks.push(shapePick(c, input, fallbackReason(c)));
+          }
+        }
+        return json({ picks });
+      }
     } catch (err) {
       return json({ error: "server error", detail: String(err) }, 500);
     }
@@ -297,4 +364,306 @@ async function getHistory(env) {
     sessions: results,
     totals,
   };
+}
+
+/* ------------------------------- Food tab -------------------------------- */
+
+function readFoodInput(body) {
+  let maxWalkMin = Number(body.maxWalkMin);
+  if (!Number.isFinite(maxWalkMin)) maxWalkMin = 12;
+  maxWalkMin = Math.min(25, Math.max(5, Math.round(maxWalkMin)));
+  const cuisines = (Array.isArray(body.cuisines) ? body.cuisines : [])
+    .map((s) => String(s))
+    .filter((s) => CUISINE_BY_ID.has(s))
+    .slice(0, 24);
+  const budget = (Array.isArray(body.budget) ? body.budget : [])
+    .map((s) => String(s))
+    .filter((s) => BUDGET_SET.has(s));
+  return {
+    hunger: HUNGER_SET.has(body.hunger) ? body.hunger : "meal",
+    budget,
+    maxWalkMin,
+    cuisines,
+    craving: String(body.craving ?? "").trim().slice(0, CRAVING_MAX),
+    exclude: body.exclude,
+  };
+}
+
+// Restaurants/fast-food/cafés around the bar, from OpenStreetMap. Keyless.
+// Result is cached (600 s) so a Reroll doesn't re-hit the shared endpoint.
+async function overpassRestaurants(maxWalkMin) {
+  const radius = Math.min(2200, Math.max(1000, maxWalkMin * 80));
+  const query =
+    `[out:json][timeout:20];` +
+    `nwr["amenity"~"^(restaurant|fast_food|cafe)$"](around:${radius},${BAR.lat},${BAR.lng});` +
+    `out center 60;`;
+
+  const cache = caches.default;
+  const cacheKey = new Request(`https://food.cache/overpass?r=${radius}`);
+  const hit = await cache.match(cacheKey);
+  if (hit) return (await hit.json()).elements || [];
+
+  let lastErr;
+  for (const endpoint of OVERPASS_ENDPOINTS) {
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: "data=" + encodeURIComponent(query),
+      });
+      if (!res.ok) {
+        lastErr = new Error("overpass HTTP " + res.status);
+        continue;
+      }
+      const elements = (await res.json()).elements || [];
+      await cache.put(
+        cacheKey,
+        new Response(JSON.stringify({ elements }), {
+          headers: {
+            "content-type": "application/json",
+            "cache-control": "max-age=600",
+          },
+        })
+      );
+      return elements;
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr || new Error("overpass unreachable");
+}
+
+function filterCandidates(elements, input) {
+  const now = nycNow();
+  const wanted = new Set(
+    input.cuisines.flatMap((id) => CUISINE_BY_ID.get(id).match)
+  );
+  const seen = new Set();
+  const out = [];
+
+  for (const el of elements) {
+    const tags = el.tags || {};
+    const name = String(tags.name || "").trim();
+    if (!name || seen.has(name.toLowerCase())) continue;
+
+    const lat = el.lat ?? el.center?.lat;
+    const lng = el.lon ?? el.center?.lon;
+    if (typeof lat !== "number" || typeof lng !== "number") continue;
+
+    const meters = haversine(BAR, { lat, lng });
+    const walkMin = walkMinutes(meters);
+    const delivers = tags.delivery === "yes";
+    if (walkMin > input.maxWalkMin && !delivers) continue;
+
+    let hours = "unknown";
+    if (tags.opening_hours) {
+      const open = openNow(tags.opening_hours, now);
+      if (open === false) continue;
+      if (open === true) hours = "open";
+    }
+
+    const cuisineParts = String(tags.cuisine || "")
+      .toLowerCase()
+      .split(";")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (wanted.size && !cuisineParts.some((p) => wanted.has(p))) continue;
+
+    seen.add(name.toLowerCase());
+    out.push({
+      name,
+      lat,
+      lng,
+      meters,
+      walkMin,
+      delivers,
+      hours,
+      amenity: tags.amenity || "restaurant",
+      phone: tags.phone || tags["contact:phone"] || null,
+      cuisineParts,
+      cuisineLabel: prettyCuisine(cuisineParts, tags.amenity),
+    });
+  }
+
+  out.sort((a, b) => a.meters - b.meters);
+  return out;
+}
+
+function prettyCuisine(parts, amenity) {
+  if (parts.length) {
+    return parts
+      .slice(0, 2)
+      .map((p) =>
+        p.replace(/_/g, " ").replace(/\b\w/g, (m) => m.toUpperCase())
+      )
+      .join(", ");
+  }
+  if (amenity === "cafe") return "Café";
+  if (amenity === "fast_food") return "Fast food";
+  return "Restaurant";
+}
+
+function shapePick(c, input, reason) {
+  const modes = [];
+  if (c.walkMin <= input.maxWalkMin) modes.push("walk");
+  if (c.delivers) modes.push("delivery");
+  if (!modes.length) modes.push("walk");
+  return {
+    name: c.name,
+    cuisine: c.cuisineLabel,
+    walkMin: c.walkMin,
+    modes,
+    hours: c.hours,
+    reason,
+    mapsUrl: mapsUrl(c.name, c.lat, c.lng),
+    orderUrl: orderUrl(c.name),
+    phone: c.phone,
+  };
+}
+
+function fallbackReason(c) {
+  const bits = [`${c.walkMin} min walk`];
+  if (c.cuisineParts.length) bits.push(c.cuisineLabel.toLowerCase());
+  if (c.delivers) bits.push("delivers");
+  const s = bits.join(", ");
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+async function rankWithAI(env, shortlist, input) {
+  const cuisineLabels =
+    input.cuisines.map((id) => CUISINE_BY_ID.get(id).label).join(", ") || "any";
+  const budgetLabels =
+    input.budget.map((id) => BUDGET_LABEL[id]).join(" / ") || "any";
+  const lines = shortlist
+    .map(
+      (c, i) =>
+        `${i + 1}. ${c.name} | ${c.cuisineLabel} | ${c.amenity} | ${c.walkMin} min walk | delivers: ${c.delivers ? "y" : "n"} | hours: ${c.hours}`
+    )
+    .join("\n");
+
+  const system =
+    `You help three friends at a bar pick where to get dinner. From the ` +
+    `numbered candidate list, choose exactly 3 and rank them best first for ` +
+    `these constraints:\n` +
+    `- hunger: ${input.hunger}\n` +
+    `- budget: ${budgetLabels}\n` +
+    `- cuisines wanted: ${cuisineLabels}\n` +
+    `- craving: ${input.craving || "(none stated)"}\n` +
+    `- max walk: ${input.maxWalkMin} min (delivery options may be farther)\n\n` +
+    `Reply with ONLY a JSON array of exactly 3 objects, each ` +
+    `{"name": "<exact name from the list>", "reason": "<max 140 chars, plain ` +
+    `and practical, name the deciding factor>"}. Pick only from the list. ` +
+    `Never invent a place.\n\nCANDIDATES:\n${lines}`;
+
+  const out = await env.AI.run(AI_MODEL, {
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: "Give me the 3 picks as JSON." },
+    ],
+    max_tokens: 500,
+    temperature: 0.3,
+  });
+
+  const text = (out.response || "").trim();
+  const match = text.match(/\[[\s\S]*\]/);
+  if (!match) return null;
+  const arr = JSON.parse(match[0]);
+  if (!Array.isArray(arr)) return null;
+  return arr
+    .filter((x) => x && typeof x.name === "string")
+    .map((x) => ({ name: x.name, reason: String(x.reason || "") }));
+}
+
+// Current weekday + minutes-past-midnight in the bar's timezone.
+function nycNow() {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      weekday: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    })
+      .formatToParts(new Date())
+      .map((p) => [p.type, p.value])
+  );
+  const dayIdx = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  let hour = parseInt(parts.hour, 10) % 24;
+  return { dow: dayIdx[parts.weekday], minutes: hour * 60 + parseInt(parts.minute, 10) };
+}
+
+// Best-effort OSM opening_hours check. true = open, false = closed,
+// null = couldn't tell (caller keeps the place, marked "unknown").
+function openNow(spec, cur) {
+  try {
+    const s = spec.trim().toLowerCase().replace(/\s+/g, " ");
+    if (s === "24/7") return true;
+    const DAY = { su: 0, mo: 1, tu: 2, we: 3, th: 4, fr: 5, sa: 6 };
+    let sawToday = false;
+
+    for (const raw of s.split(";")) {
+      const block = raw.trim();
+      if (!block) continue;
+
+      const off = block.match(/^([a-z, \-]+?) (off|closed)$/);
+      if (off) {
+        if (dayMatches(off[1], cur.dow, DAY)) sawToday = true;
+        continue;
+      }
+
+      const timeRe = /\d{1,2}:\d{2}-\d{1,2}:\d{2}(?:,\d{1,2}:\d{2}-\d{1,2}:\d{2})*/;
+      const withDay = block.match(new RegExp("^([a-z, \\-]+?) (" + timeRe.source + ")$"));
+      const timeOnly = block.match(new RegExp("^(" + timeRe.source + ")$"));
+
+      let ranges;
+      if (withDay) {
+        if (!dayMatches(withDay[1], cur.dow, DAY)) continue;
+        ranges = withDay[2];
+      } else if (timeOnly) {
+        ranges = timeOnly[1];
+      } else {
+        continue;
+      }
+
+      sawToday = true;
+      for (const range of ranges.split(",")) {
+        const [a, b] = range.split("-");
+        const start = hm(a);
+        let end = hm(b);
+        if (end <= start) end += 1440; // over midnight
+        const t = cur.minutes;
+        if ((t >= start && t < end) || (t + 1440 >= start && t + 1440 < end)) {
+          return true;
+        }
+      }
+    }
+    return sawToday ? false : null;
+  } catch {
+    return null;
+  }
+}
+
+function hm(x) {
+  const [h, m] = x.split(":").map((n) => parseInt(n, 10));
+  return h * 60 + m;
+}
+
+function dayMatches(daySpec, dow, DAY) {
+  for (const token of daySpec.split(",")) {
+    const t = token.trim();
+    if (!t) continue;
+    const range = t.match(/^([a-z]{2})-([a-z]{2})$/);
+    if (range) {
+      const a = DAY[range[1]];
+      const b = DAY[range[2]];
+      if (a == null || b == null) continue;
+      for (let d = a, i = 0; i < 7; d = (d + 1) % 7, i++) {
+        if (d === dow) return true;
+        if (d === b) break;
+      }
+    } else if (DAY[t] === dow) {
+      return true;
+    }
+  }
+  return false;
 }

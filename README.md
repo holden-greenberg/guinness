@@ -17,6 +17,11 @@ count the current session while at the bar.
   the official rules and the full rules text. An **"Ask about the rules"** box
   answers questions mid-game via Cloudflare Workers AI, grounded only in that
   game's rules text (`public/rules/<game>.txt`).
+- **Food** (`/food`): decides what to eat at the bar. Pick hunger / cuisine /
+  budget / walk distance; the Worker pulls nearby restaurants from OpenStreetMap
+  (Overpass API — no key, no cost) and Workers AI ranks a top-3 shortlist with a
+  one-line reason and Directions / Order links. Stateless. Config (bar location,
+  cuisine map) in [`src/food.js`](src/food.js).
 
 **Live:** https://guinness.holdengreenberg.workers.dev
 
@@ -44,6 +49,7 @@ fall through to the Worker:
 | `DELETE /api/history` | `{ id }` |
 | `GET /api/games` | list of games (id, name, official-rules url) |
 | `POST /api/ask` | `{ gameId, question }` → `{ answer }` via Workers AI |
+| `POST /api/food` | `{ hunger, cuisines, craving, budget, maxWalkMin, exclude? }` → `{ picks: [...] }` (Overpass + Workers AI) |
 
 Games and their rules live in [`src/games.js`](src/games.js) (metadata) and
 `public/rules/*.txt` (rules text, served as static files and read by

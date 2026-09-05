@@ -556,3 +556,90 @@ main {
   line-height: 1.5;
   white-space: pre-wrap;
 }
+
+/* --- food page --- */
+#food { gap: 18px; }
+.decide-card .field { margin-bottom: 14px; }
+.decide-card .field:last-of-type { margin-bottom: 4px; }
+.decide-card input[type="text"] { margin-top: 6px; }
+
+.seg { display: flex; gap: 6px; }
+.seg-btn {
+  flex: 1;
+  border: 1px solid #0e0b0833;
+  background: #fff;
+  color: var(--surface-ink);
+  border-radius: 10px;
+  padding: 10px 6px;
+  font: inherit;
+  font-size: 0.95rem;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.seg-btn[aria-pressed="true"] {
+  background: var(--surface-ink);
+  color: var(--surface);
+  border-color: var(--surface-ink);
+  font-weight: 700;
+}
+
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  border: 1px solid #0e0b0833;
+  background: #fff;
+  color: var(--surface-ink);
+  border-radius: 999px;
+  padding: 7px 12px;
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.chip[aria-pressed="true"] {
+  background: var(--gold);
+  border-color: var(--gold-deep);
+  color: var(--stout);
+  font-weight: 700;
+}
+
+.range { width: 100%; accent-color: var(--gold-deep); }
+
+.pick-list { display: flex; flex-direction: column; gap: 12px; }
+.pick-card {
+  background: var(--surface);
+  color: var(--surface-ink);
+  border-radius: 14px;
+  padding: 14px 16px;
+  box-shadow: 0 8px 20px #0007;
+}
+.pick-top { display: flex; align-items: baseline; gap: 8px; }
+.pick-rank {
+  flex: none;
+  width: 1.4rem;
+  height: 1.4rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--gold);
+  color: var(--stout);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+.pick-name { font-size: 1.05rem; font-weight: 700; }
+.pick-meta {
+  margin: 8px 0 0;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--surface-dim);
+}
+.pick-reason { margin: 8px 0 0; font-size: 0.95rem; line-height: 1.5; }
+.pick-actions { display: flex; gap: 16px; margin-top: 12px; }
+.pick-link {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--gold-deep);
+  text-decoration: none;
+}
+.reroll-btn { align-self: center; margin-top: 4px; }
