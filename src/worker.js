@@ -23,8 +23,10 @@ const CRAVING_MAX = 200;
 const AI_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 
 // Free, keyless restaurant data for the Food tab. The public Overpass
-// instances are frequently overloaded (429/504) or down, so we race all of
-// them and fall back to a stale cached result when every one fails.
+// instances are frequently overloaded (429/504) or down, so we try them in
+// staggered order and fall back to a stale cached result when every one fails.
+// Staggering (not racing all at once) keeps CPU low: each response we parse
+// costs CPU, and the free tier allows ~10ms per request.
 const OVERPASS_ENDPOINTS = [
   "https://overpass-api.de/api/interpreter",
   "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
@@ -33,7 +35,8 @@ const OVERPASS_ENDPOINTS = [
   "https://overpass.osm.jp/api/interpreter",
 ];
 const OVERPASS_UA = "guinness-dead-poet/1.0 (+https://guinness.holdengreenberg.workers.dev)";
-const OVERPASS_FRESH_MS = 10 * 60 * 1000; // serve cache without refetch below this
+const OVERPASS_STAGGER_MS = 2000; // wait this long for a mirror before also trying the next
+const OVERPASS_FRESH_MS = 6 * 60 * 60 * 1000; // serve cache without refetch below this
 const OVERPASS_KEEP_S = 7 * 24 * 60 * 60; // keep last good result this long for stale fallback
 const HUNGER_SET = new Set(["snack", "meal", "feast"]);
 const BUDGET_SET = new Set(["low", "mid", "high"]);
@@ -428,7 +431,7 @@ function readFoodInput(body) {
 }
 
 // Restaurants/fast-food/cafés around the bar, from OpenStreetMap. Keyless.
-// Fresh result cached 10 min; last good result kept a week and served stale
+// Fresh result cached 6 hours; last good result kept a week and served stale
 // if every Overpass mirror is failing (they often are).
 async function overpassRestaurants(maxWalkMin) {
   const radius = Math.min(2200, Math.max(1000, maxWalkMin * 80));
@@ -463,29 +466,39 @@ async function overpassRestaurants(maxWalkMin) {
   }
 }
 
-// Hit every mirror at once; take the first that returns usable JSON.
+// Hedged requests: start the first mirror, and only start the next one if
+// nothing has answered within OVERPASS_STAGGER_MS. First usable result wins and
+// the rest are aborted, so at most a couple of responses are ever parsed.
 async function raceOverpass(query) {
-  const attempts = OVERPASS_ENDPOINTS.map((endpoint) =>
-    fetch(endpoint, {
+  const stop = new AbortController();
+  const attempts = OVERPASS_ENDPOINTS.map(async (endpoint, i) => {
+    if (i > 0) {
+      await new Promise((resolve) => setTimeout(resolve, i * OVERPASS_STAGGER_MS));
+    }
+    if (stop.signal.aborted) throw new Error(`${endpoint} → skipped`);
+    const res = await fetch(endpoint, {
       method: "POST",
       headers: {
         "content-type": "application/x-www-form-urlencoded",
         "user-agent": OVERPASS_UA,
       },
       body: "data=" + encodeURIComponent(query),
-      signal: AbortSignal.timeout(20000),
-    }).then(async (res) => {
-      if (!res.ok) throw new Error(`${endpoint} → HTTP ${res.status}`);
-      const data = await res.json();
-      // A healthy mirror near a dense area returns dozens; a broken/empty
-      // mirror answers fast with []. Don't let that win the race.
-      if (!Array.isArray(data.elements) || data.elements.length < 5) {
-        throw new Error(`${endpoint} → thin result (${data.elements?.length ?? "none"})`);
-      }
-      return data.elements;
-    })
-  );
-  return Promise.any(attempts);
+      signal: AbortSignal.any([stop.signal, AbortSignal.timeout(20000)]),
+    });
+    if (!res.ok) throw new Error(`${endpoint} → HTTP ${res.status}`);
+    const data = await res.json();
+    // A healthy mirror near a dense area returns dozens; a broken/empty
+    // mirror answers fast with []. Don't let that win the race.
+    if (!Array.isArray(data.elements) || data.elements.length < 5) {
+      throw new Error(`${endpoint} → thin result (${data.elements?.length ?? "none"})`);
+    }
+    return data.elements;
+  });
+  try {
+    return await Promise.any(attempts);
+  } finally {
+    stop.abort();
+  }
 }
 
 function filterCandidates(elements, input) {
