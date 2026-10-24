@@ -386,6 +386,8 @@ def undo_drink(person):
 
 def reset_tonight():
     conn = db()
+    since = _tonight_since(conn)
+    conn.execute("DELETE FROM drinks WHERE created_at >= ?", (since,))
     conn.execute(
         "UPDATE meta SET value = ? WHERE key = 'tonight_since'", (now_iso(),)
     )

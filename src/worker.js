@@ -77,6 +77,12 @@ export default {
       }
 
       if (pathname === "/api/reset-tonight" && method === "POST") {
+        const since = await tonightSince(env);
+        // Discard the unsaved taps so they stop counting toward lifetime too.
+        await env.DB
+          .prepare("DELETE FROM drinks WHERE created_at >= ?1")
+          .bind(since)
+          .run();
         await env.DB
           .prepare("UPDATE meta SET value = ?1 WHERE key = 'tonight_since'")
           .bind(new Date().toISOString())

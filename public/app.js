@@ -120,7 +120,7 @@ async function undoDrink(personId) {
 
 async function resetTonight() {
   if (busy) return;
-  if (!confirm("Start a fresh session? Tonight's counters go back to 0 without being saved. Lifetime totals stay.")) {
+  if (!confirm("Start a fresh session? Tonight's drinks are discarded without being saved and come off the lifetime totals.")) {
     return;
   }
   busy = true;
