@@ -60,7 +60,10 @@ async function api(path, body) {
     body: JSON.stringify(body),
   });
   const payload = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(payload.error || "HTTP " + res.status);
+  if (!res.ok) {
+    const msg = payload.error || "HTTP " + res.status;
+    throw new Error(payload.detail ? `${msg} (${payload.detail})` : msg);
+  }
   return payload;
 }
 

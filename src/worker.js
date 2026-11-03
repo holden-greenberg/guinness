@@ -233,7 +233,7 @@ export default {
           elements = await overpassRestaurants(input.maxWalkMin);
         } catch (err) {
           return json(
-            { error: "couldn't reach the restaurant map right now", detail: String(err) },
+            { error: "couldn't reach the restaurant map right now", detail: describeError(err) },
             503
           );
         }
@@ -484,6 +484,8 @@ async function raceOverpass(query) {
       },
       body: "data=" + encodeURIComponent(query),
       signal: AbortSignal.any([stop.signal, AbortSignal.timeout(20000)]),
+    }).catch((e) => {
+      throw new Error(`${endpoint} → ${e?.message ?? e}`);
     });
     if (!res.ok) throw new Error(`${endpoint} → HTTP ${res.status}`);
     const data = await res.json();
@@ -499,6 +501,14 @@ async function raceOverpass(query) {
   } finally {
     stop.abort();
   }
+}
+
+// AggregateError's message hides the per-mirror reasons; spell them out.
+function describeError(err) {
+  if (err instanceof AggregateError) {
+    return err.errors.map((e) => e?.message ?? String(e)).join("; ");
+  }
+  return String(err);
 }
 
 function filterCandidates(elements, input) {
