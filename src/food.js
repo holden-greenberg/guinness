@@ -1,7 +1,7 @@
 // Food tab config — everything static about the "what should we eat" picker.
 // No API keys, no billing: restaurants come from src/restaurants.json, a list
-// built ahead of time by scripts/refresh-restaurants.mjs, and are ranked by
-// Cloudflare Workers AI (same model the Games tab uses).
+// built ahead of time by scripts/refresh-restaurants.mjs. Chips, moods and the
+// other flags below are worked out for each place when that list is built.
 
 // The Dead Poet — 450 Amsterdam Ave #2, New York, NY 10024.
 export const BAR = { lat: 40.78485, lng: -73.97709 };
@@ -47,23 +47,33 @@ export const SNACK_KINDS = [
 
 export const CUISINE_BY_ID = new Map(CUISINES.map((c) => [c.id, c]));
 
-export const HUNGER = [
-  { id: "snack", label: "Snack" },
-  { id: "meal", label: "Real meal" },
-  { id: "feast", label: "Feast" },
+// Mood buttons: which chips count as each mood.
+export const MOODS = [
+  { id: "greasy", label: "Greasy", chips: ["pizza", "burgers", "wings", "mexican", "halal", "bbq"] },
+  { id: "fresh", label: "Fresh", chips: ["sushi", "healthy", "med", "mideast", "vietnamese", "deli"] },
+  { id: "spicy", label: "Spicy", chips: ["thai", "indian", "mexican", "halal", "vietnamese"] },
+  { id: "comfort", label: "Comfort", chips: ["italian", "american", "chinese", "ramen", "deli", "pizza", "bbq"] },
 ];
 
-// Budget tiers — multi-select; empty means "any". Soft signal to the AI only
-// (the restaurant data has no prices to filter on).
-export const BUDGET = [
-  { id: "low", label: "$" },
-  { id: "mid", label: "$$" },
-  { id: "high", label: "$$$" },
+// A best guess at what's easy to carry back and eat at the bar, since the data
+// doesn't say who does takeout. A takeout tag on OpenStreetMap overrides this.
+export const PORTABLE_CHIPS = [
+  "pizza", "burgers", "deli", "bagels", "mexican", "chinese", "thai", "sushi", "vietnamese",
+  "indian", "wings", "bbq", "med", "mideast", "halal", "healthy",
 ];
+export const PORTABLE_CUISINES = [
+  "Asian/Asian Fusion", "Southeast Asian", "Latin American", "Caribbean", "Jewish/Kosher",
+  "Hotdogs", "Peruvian", "Spanish",
+];
+export const NOT_PORTABLE_NAME = /tavern|\bpub\b|wine|cocktail|lounge|steakhouse|omakase|ramen/i;
+
+// Likely shut by dinner. Hidden in the evening unless their hours say otherwise.
+export const DAYTIME_CUISINES = ["Bagels/Pretzels", "Pancakes/Waffles"];
+export const DAYTIME_NAME = /bagel|breakfast|brunch|bakery/i;
 
 export const WALK_MIN = 5;
 export const WALK_MAX = 25;
-export const WALK_DEFAULT = 12;
+export const WALK_DEFAULT = 8;
 
 // Straight-line metres between two lat/lng points.
 export function haversine(a, b) {
@@ -82,9 +92,19 @@ export function walkMinutes(meters) {
   return Math.max(1, Math.round((meters * 1.3) / 80));
 }
 
-export function mapsUrl(name, address) {
+// The place's Google Maps page, which has its photos and reviews.
+export function reviewsUrl(name, address) {
   const q = encodeURIComponent(`${name}, ${address}, New York, NY`);
   return `https://www.google.com/maps/search/?api=1&query=${q}`;
+}
+
+export function directionsUrl(name, address) {
+  const to = encodeURIComponent(`${name}, ${address}, New York, NY`);
+  return `https://www.google.com/maps/dir/?api=1&origin=${BAR.lat},${BAR.lng}&destination=${to}&travelmode=walking`;
+}
+
+export function menuSearchUrl(name) {
+  return `https://www.google.com/search?q=${encodeURIComponent(name + " NYC menu")}`;
 }
 
 export function orderUrl(name) {

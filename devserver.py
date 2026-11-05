@@ -14,7 +14,7 @@ seeded from schema.sql on first run.
 
 import argparse
 import json
-import math
+import random
 import re
 import sqlite3
 import urllib.parse
@@ -57,43 +57,51 @@ RESTAURANTS = json.loads((ROOT / "src" / "restaurants.json").read_text())["place
 
 
 def food_pick(body):
-    """Local stand-in for /api/food: same restaurant list, nearest first (the
-    deployed Worker also checks opening hours and ranks with Workers AI)."""
+    """Local stand-in for /api/food: same list and filters, but no opening-hours
+    check, so it can suggest places that are closed right now."""
     try:
         max_walk = int(body.get("maxWalkMin"))
     except (TypeError, ValueError):
-        max_walk = 12
+        max_walk = 8
     max_walk = min(25, max(5, max_walk))
     chips = set(body.get("cuisines") or [])
-    exclude = {str(x).lower() for x in (body.get("exclude") or [])}
+    mood = body.get("mood")
+    query = str(body.get("query") or "").strip().lower()
+    eat_out = body.get("eatOut") is True
+
+    fits = []
+    for p in RESTAURANTS:
+        if p["walkMin"] > max_walk or (mood and mood not in p["moods"]):
+            continue
+        if chips and not chips & set(p["chips"]):
+            continue
+        if query and query not in f'{p["name"]} {p["cuisine"]}'.lower():
+            continue
+        if not chips and not query and (p["snack"] or p["daytime"] or (not eat_out and not p["portable"])):
+            continue
+        fits.append((p["walkMin"] + random.random() * 6, p))
+    fits.sort(key=lambda f: f[0])
 
     picks = []
-    for p in RESTAURANTS:
-        if p["name"].lower() in exclude or (p["walkMin"] > max_walk and not p["delivers"]):
-            continue
-        if chips:
-            if not chips & set(p["chips"]):
-                continue
-        elif p["snack"] and body.get("hunger") != "snack":
-            continue
-        modes = (["walk"] if p["walkMin"] <= max_walk else []) + (["delivery"] if p["delivers"] else [])
+    for _, p in fits[:30]:
+        where = urllib.parse.quote(f'{p["name"]}, {p["address"]}, New York, NY')
         picks.append({
             "name": p["name"],
             "cuisine": p["cuisine"],
             "address": p["address"],
             "grade": p["grade"],
             "walkMin": p["walkMin"],
-            "modes": modes,
-            "hours": "unknown",
-            "reason": f'{p["walkMin"]} min walk, {p["cuisine"].lower()}',
-            "mapsUrl": "https://www.google.com/maps/search/?api=1&query="
-                       + urllib.parse.quote(f'{p["name"]}, {p["address"]}, New York, NY'),
+            "eatOut": eat_out,
+            "hours": "Hours not on file",
+            "delivers": p["delivers"],
+            "phone": p["phone"],
+            "menuUrl": p["website"] or "https://www.google.com/search?q="
+                       + urllib.parse.quote(f'{p["name"]} NYC menu'),
             "orderUrl": "https://www.google.com/search?q="
                         + urllib.parse.quote(f'{p["name"]} NYC delivery order'),
-            "phone": p["phone"],
+            "directionsUrl": "https://www.google.com/maps/dir/?api=1&travelmode=walking&destination=" + where,
+            "reviewsUrl": "https://www.google.com/maps/search/?api=1&query=" + where,
         })
-        if len(picks) == 3:
-            break
     return {"picks": picks}, 200
 
 

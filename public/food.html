@@ -14,7 +14,7 @@
 <body>
   <header class="site-head">
     <h1>The Dead Poet</h1>
-    <p class="tagline">What are we eating?</p>
+    <p class="tagline">What are we bringing back?</p>
     <nav class="tabs">
       <a href="/" class="tab">Counter</a>
       <a href="/history" class="tab">History</a>
@@ -24,43 +24,44 @@
   </header>
 
   <main id="food">
-    <section class="ask-card decide-card">
-      <h2 class="ask-title">Dinner call</h2>
-
-      <div class="field">
-        <span class="field-label">Hunger</span>
-        <div class="seg" id="hungerSeg" role="group" aria-label="Hunger"></div>
-      </div>
-
-      <div class="field">
-        <span class="field-label">Craving</span>
-        <div class="chips" id="cuisineChips"></div>
-        <input type="text" id="craving" maxlength="200"
-          placeholder="…or say what you're feeling (spicy, greasy, light)" />
-      </div>
-
-      <div class="field">
-        <span class="field-label">Budget</span>
-        <div class="seg" id="budgetSeg" role="group" aria-label="Budget"></div>
-      </div>
-
-      <div class="field">
-        <span class="field-label">Walk up to <b id="walkVal">12</b> min</span>
-        <input type="range" id="walk" class="range" min="5" max="25" step="1" value="12" />
-      </div>
-
-      <button type="button" class="ask-btn" id="findBtn">Find food</button>
-      <p class="ask-disclaimer">
-        Places and grades come from NYC health inspection records, hours from OpenStreetMap. Not every place has hours on file, so call if it's late.
-      </p>
+    <section>
+      <span class="mood-label" id="moodLabel">In the mood for</span>
+      <div class="seg" id="moods" role="group" aria-labelledby="moodLabel"></div>
     </section>
 
-    <section id="results" class="pick-list" aria-live="polite"></section>
-  </main>
+    <section id="results" class="pick-list" aria-live="polite">
+      <p class="loading">Finding food…</p>
+    </section>
 
-  <footer class="site-foot">
-    <span id="status" class="status"></span>
-  </footer>
+    <details class="ask-card more-options">
+      <summary>More options</summary>
+
+      <div class="field">
+        <span class="field-label">Plan</span>
+        <div class="seg" id="plan" role="group" aria-label="Plan"></div>
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="walk">Walk up to <b id="walkVal">8</b> min</label>
+        <input type="range" id="walk" class="range" min="5" max="25" step="1" value="8" />
+      </div>
+
+      <div class="field">
+        <span class="field-label">Cuisine</span>
+        <div class="chips" id="cuisineChips"></div>
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="query">Looking for something specific?</label>
+        <input type="text" id="query" maxlength="60" placeholder="dumplings, Ray's…" />
+      </div>
+    </details>
+
+    <p class="food-note">
+      Places and health grades come from NYC inspection records, hours from OpenStreetMap.
+      Call to confirm before you walk over.
+    </p>
+  </main>
 
   <script src="./food.js"></script>
 </body>

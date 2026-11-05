@@ -4,7 +4,17 @@
 // request that doesn't match a file (the /api/* routes) falls through here.
 
 import { GAMES, GAME_BY_ID } from "./games.js";
-import { CUISINE_BY_ID, mapsUrl, orderUrl } from "./food.js";
+import {
+  CUISINE_BY_ID,
+  MOODS,
+  WALK_DEFAULT,
+  WALK_MAX,
+  WALK_MIN,
+  directionsUrl,
+  menuSearchUrl,
+  orderUrl,
+  reviewsUrl,
+} from "./food.js";
 import RESTAURANTS from "./restaurants.json";
 
 const PEOPLE = ["matt", "alex", "holden"];
@@ -13,12 +23,12 @@ const GOAL = 100;
 const MAX_PER_SESSION = 99;
 const NOTE_MAX = 280;
 const QUESTION_MAX = 500;
-const CRAVING_MAX = 200;
+const FOOD_QUERY_MAX = 60;
 const AI_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 
-const HUNGER_SET = new Set(["snack", "meal", "feast"]);
-const BUDGET_SET = new Set(["low", "mid", "high"]);
-const BUDGET_LABEL = { low: "$", mid: "$$", high: "$$$" };
+const MOOD_SET = new Set(MOODS.map((m) => m.id));
+const FOOD_POOL_SIZE = 30; // the page swaps from these without another request
+const EVENING_MINUTES = 15 * 60; // daytime-only spots drop out from 3pm
 
 export default {
   async fetch(request, env) {
@@ -202,64 +212,7 @@ export default {
 
       if (pathname === "/api/food" && method === "POST") {
         const input = readFoodInput(await readJson(request));
-
-        const candidates = filterCandidates(input);
-        const debug = url.searchParams.get("debug");
-        if (!candidates.length) {
-          return json(
-            debug ? { picks: [], _debug: { candidates: 0 } } : { picks: [] }
-          );
-        }
-
-        const exclude = new Set(
-          (Array.isArray(input.exclude) ? input.exclude : []).map((s) =>
-            String(s).toLowerCase()
-          )
-        );
-        const trimmed = candidates.filter((c) => !exclude.has(c.name.toLowerCase()));
-        const shortlist = buildShortlist(trimmed.length ? trimmed : candidates, input.craving);
-
-        let ranked = null;
-        let aiErr = null;
-        let aiRaw = null;
-        try {
-          const r = await rankWithAI(env, shortlist, input);
-          ranked = r.picks;
-          aiRaw = r.raw;
-        } catch (err) {
-          aiErr = String(err && err.message ? err.message : err);
-          console.warn("[food] AI rank failed:", aiErr);
-        }
-
-        const byName = new Map(shortlist.map((c) => [c.name.toLowerCase(), c]));
-        const picks = [];
-        for (const r of ranked || []) {
-          const c = byName.get(String(r.name || "").toLowerCase());
-          if (c && !picks.some((p) => p.name === c.name)) {
-            picks.push(shapePick(c, input, String(r.reason || "").slice(0, 200)));
-          }
-          if (picks.length === 3) break;
-        }
-        for (const c of shortlist) {
-          if (picks.length === 3) break;
-          if (!picks.some((p) => p.name === c.name)) {
-            picks.push(shapePick(c, input, fallbackReason(c)));
-          }
-        }
-        if (debug) {
-          return json({
-            picks,
-            _debug: {
-              restaurantsUpdated: RESTAURANTS.updated,
-              candidates: candidates.length,
-              shortlist: shortlist.map((c) => c.name),
-              aiRanked: ranked ? ranked.length : null,
-              aiErr,
-              aiRaw,
-            },
-          });
-        }
-        return json({ picks });
+        return json({ picks: foodPool(input).map((c) => shapePick(c, input)) });
       }
     } catch (err) {
       return json({ error: "server error", detail: String(err) }, 500);
@@ -376,201 +329,77 @@ async function getHistory(env) {
 
 function readFoodInput(body) {
   let maxWalkMin = Number(body.maxWalkMin);
-  if (!Number.isFinite(maxWalkMin)) maxWalkMin = 12;
-  maxWalkMin = Math.min(25, Math.max(5, Math.round(maxWalkMin)));
+  if (!Number.isFinite(maxWalkMin)) maxWalkMin = WALK_DEFAULT;
+  maxWalkMin = Math.min(WALK_MAX, Math.max(WALK_MIN, Math.round(maxWalkMin)));
   const cuisines = (Array.isArray(body.cuisines) ? body.cuisines : [])
     .map((s) => String(s))
-    .filter((s) => CUISINE_BY_ID.has(s))
-    .slice(0, 24);
-  const budget = (Array.isArray(body.budget) ? body.budget : [])
-    .map((s) => String(s))
-    .filter((s) => BUDGET_SET.has(s));
+    .filter((s) => CUISINE_BY_ID.has(s));
   return {
-    hunger: HUNGER_SET.has(body.hunger) ? body.hunger : "meal",
-    budget,
-    maxWalkMin,
+    mood: MOOD_SET.has(body.mood) ? body.mood : null,
     cuisines,
-    craving: String(body.craving ?? "").trim().slice(0, CRAVING_MAX),
-    exclude: body.exclude,
+    query: String(body.query ?? "").trim().toLowerCase().slice(0, FOOD_QUERY_MAX),
+    maxWalkMin,
+    eatOut: body.eatOut === true,
   };
 }
 
-// Everything in reach and not known to be closed, nearest first (the list is
-// stored sorted). A place with no hours on record stays in, marked "unknown".
-function filterCandidates(input) {
+// Everything that fits, close places more likely to come first but not always,
+// so each visit offers something different and the distance setting matters.
+function foodPool(input) {
   const now = nycNow();
-  const out = [];
+  const askedForIt = input.cuisines.length > 0 || input.query.length > 0;
+  const fits = [];
 
   for (const place of RESTAURANTS.places) {
-    if (place.walkMin > input.maxWalkMin && !place.delivers) continue;
-    if (input.cuisines.length) {
-      if (!input.cuisines.some((id) => place.chips.includes(id))) continue;
-    } else if (place.snack && input.hunger !== "snack") {
-      continue;
+    if (place.walkMin > input.maxWalkMin) continue;
+    if (input.mood && !place.moods.includes(input.mood)) continue;
+    if (input.cuisines.length && !input.cuisines.some((id) => place.chips.includes(id))) continue;
+    if (input.query && !matchesQuery(place, input.query)) continue;
+
+    if (!askedForIt) {
+      if (place.snack) continue;
+      if (!input.eatOut && !place.portable) continue;
+      if (place.daytime && !place.hours && now.minutes >= EVENING_MINUTES) continue;
     }
 
-    const open = place.hours ? openNow(place.hours, now) : null;
-    if (open === false) continue;
-    out.push({ ...place, hours: open ? "open" : "unknown" });
+    const today = place.hours ? hoursToday(place.hours, now) : null;
+    if (today && !today.open) continue;
+    fits.push({ ...place, hoursLabel: hoursLabel(today), order: place.walkMin + Math.random() * 6 });
   }
-  return out;
+  return fits.sort((a, b) => a.order - b.order).slice(0, FOOD_POOL_SIZE);
 }
 
-// The AI only sees a short list. Sample across the whole walk range, because the
-// nearest few dozen would give the same picks every time and ignore the slider.
-// Places that literally match what was typed ("tacos", "ramen") always make it.
-const CRAVING_NOISE = new Set(["the", "and", "for", "not", "some", "something", "food", "want"]);
-function buildShortlist(candidates, craving) {
-  const words = (craving.toLowerCase().match(/[a-z]{3,}/g) || []).filter((w) => !CRAVING_NOISE.has(w));
-  const matches = (c) => {
-    const labels = c.chips.map((id) => CUISINE_BY_ID.get(id).label);
-    const text = [c.name, c.cuisine, ...labels].join(" ").toLowerCase();
-    return words.some((w) => text.includes(w));
-  };
-  const shuffled = candidates
-    .map((c) => ({ c, order: Math.random() }))
-    .sort((a, b) => a.order - b.order)
-    .map(({ c }) => c);
-  return [...shuffled.filter(matches), ...shuffled.filter((c) => !matches(c))]
-    .slice(0, 15)
-    .sort((a, b) => matches(b) - matches(a) || a.walkMin - b.walkMin);
+function matchesQuery(place, query) {
+  const labels = place.chips.map((id) => CUISINE_BY_ID.get(id).label);
+  return [place.name, place.cuisine, ...labels].join(" ").toLowerCase().includes(query);
 }
 
-function shapePick(c, input, reason) {
-  const modes = [];
-  if (c.walkMin <= input.maxWalkMin) modes.push("walk");
-  if (c.delivers) modes.push("delivery");
-  if (!modes.length) modes.push("walk");
+function hoursLabel(today) {
+  if (!today) return "Hours not on file";
+  if (today.closes == null) return "Open 24 hours";
+  const minutes = today.closes % 1440;
+  const h = Math.floor(minutes / 60);
+  const m = String(minutes % 60).padStart(2, "0");
+  const clock = `${h % 12 || 12}${m === "00" ? "" : ":" + m}`;
+  return `Open until ${clock} ${h < 12 ? "AM" : "PM"}`;
+}
+
+function shapePick(c, input) {
   return {
     name: c.name,
     cuisine: c.cuisine,
     address: c.address,
     grade: c.grade,
     walkMin: c.walkMin,
-    modes,
-    hours: c.hours,
-    reason,
-    mapsUrl: mapsUrl(c.name, c.address),
-    orderUrl: orderUrl(c.name),
+    eatOut: input.eatOut,
+    hours: c.hoursLabel,
+    delivers: c.delivers,
     phone: c.phone,
+    menuUrl: c.website || menuSearchUrl(c.name),
+    orderUrl: orderUrl(c.name),
+    directionsUrl: directionsUrl(c.name, c.address),
+    reviewsUrl: reviewsUrl(c.name, c.address),
   };
-}
-
-function fallbackReason(c) {
-  const bits = [`${c.walkMin} min walk`, c.cuisine.toLowerCase()];
-  if (c.hours === "open") bits.push("open now");
-  if (c.delivers) bits.push("delivers");
-  const s = bits.join(", ");
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
-
-async function rankWithAI(env, shortlist, input) {
-  const cuisineLabels =
-    input.cuisines.map((id) => CUISINE_BY_ID.get(id).label).join(", ") || "any";
-  const budgetLabels =
-    input.budget.map((id) => BUDGET_LABEL[id]).join(" / ") || "any";
-  const lines = shortlist
-    .map(
-      (c, i) =>
-        `${i + 1}. ${c.name} | ${c.cuisine} | ${c.walkMin} min walk | delivers: ${c.delivers ? "y" : "n"} | hours: ${c.hours}`
-    )
-    .join("\n");
-
-  const system =
-    `You help three friends drinking at a bar pick where to get dinner. ` +
-    `From the numbered candidate list, choose exactly 3 and rank them best ` +
-    `first for these constraints:\n` +
-    `- hunger: ${input.hunger}\n` +
-    `- budget: ${budgetLabels}\n` +
-    `- cuisines wanted: ${cuisineLabels}\n` +
-    `- craving: ${input.craving || "(none stated)"}\n` +
-    `- max walk: ${input.maxWalkMin} min (delivery options may be farther)\n\n` +
-    `Reply with ONLY a JSON array of exactly 3 objects: ` +
-    `{"name": "<exact name from the list>", "reason": "<one sentence, 12-22 ` +
-    `words>"}. Each reason must be specific and practical and cite at least ` +
-    `two concrete facts from that candidate's row (walk time, cuisine, whether ` +
-    `it's open, whether it delivers) tied to the constraints. No generic ` +
-    `phrases like "good option" or "big restaurant". Example reason: ` +
-    `"Only 3 minutes away, open now, and their pad see ew travels fine if you ` +
-    `end up getting it delivered." Pick only from the list; never invent a ` +
-    `place.\n\nCANDIDATES:\n${lines}`;
-
-  const out = await env.AI.run(AI_MODEL, {
-    messages: [
-      { role: "system", content: system },
-      {
-        role: "user",
-        content:
-          "Give me the 3 ranked picks as a JSON array, each with a specific one-sentence reason.",
-      },
-    ],
-    max_tokens: 600,
-    temperature: 0.4,
-  });
-
-  const text = aiText(out).trim();
-  const slice = extractJsonArray(text);
-  if (!slice) {
-    throw new Error(
-      "no JSON array in AI reply: " +
-        (text.slice(0, 160) || JSON.stringify(out).slice(0, 200))
-    );
-  }
-
-  let arr;
-  try {
-    arr = JSON.parse(slice);
-  } catch (e) {
-    throw new Error("bad JSON from AI: " + slice.slice(0, 160));
-  }
-  if (!Array.isArray(arr) && Array.isArray(arr?.picks)) arr = arr.picks;
-  if (!Array.isArray(arr)) throw new Error("AI reply was not an array");
-
-  const picks = arr
-    .filter((x) => x && typeof x.name === "string")
-    .map((x) => ({ name: x.name, reason: String(x.reason || "") }));
-  if (!picks.length) throw new Error("AI array had no usable picks");
-  return { picks, raw: text.slice(0, 300) };
-}
-
-// Workers AI text output has shifted shape across model/runtime versions.
-// Pull a plain string out of whatever env.AI.run returned.
-function aiText(out) {
-  if (typeof out === "string") return out;
-  const r = out?.response ?? out?.result?.response ?? out?.result ?? out?.output;
-  if (typeof r === "string") return r;
-  if (r && typeof r === "object") {
-    if (typeof r.response === "string") return r.response;
-    if (typeof r.content === "string") return r.content;
-    if (typeof r.text === "string") return r.text;
-    if (Array.isArray(r.content)) {
-      return r.content.map((c) => (typeof c === "string" ? c : c?.text ?? "")).join("");
-    }
-  }
-  if (Array.isArray(out?.choices)) return out.choices[0]?.message?.content ?? "";
-  return "";
-}
-
-// First balanced [ ... ] in a string (handles trailing prose / code fences).
-function extractJsonArray(text) {
-  const start = text.indexOf("[");
-  if (start === -1) return null;
-  let depth = 0;
-  let inStr = false;
-  let esc = false;
-  for (let i = start; i < text.length; i++) {
-    const ch = text[i];
-    if (inStr) {
-      if (esc) esc = false;
-      else if (ch === "\\") esc = true;
-      else if (ch === '"') inStr = false;
-      continue;
-    }
-    if (ch === '"') inStr = true;
-    else if (ch === "[") depth++;
-    else if (ch === "]" && --depth === 0) return text.slice(start, i + 1);
-  }
-  return null;
 }
 
 // Current weekday + minutes-past-midnight in the bar's timezone.
@@ -591,12 +420,12 @@ function nycNow() {
   return { dow: dayIdx[parts.weekday], minutes: hour * 60 + parseInt(parts.minute, 10) };
 }
 
-// Best-effort OSM opening_hours check. true = open, false = closed,
-// null = couldn't tell (caller keeps the place, marked "unknown").
-function openNow(spec, cur) {
+// Best-effort OSM opening_hours check: { open, closes } with closes in minutes
+// past midnight (null if it never closes), or null if we couldn't tell.
+function hoursToday(spec, cur) {
   try {
     const s = spec.trim().toLowerCase().replace(/\s+/g, " ");
-    if (s === "24/7") return true;
+    if (s === "24/7") return { open: true, closes: null };
     const DAY = { su: 0, mo: 1, tu: 2, we: 3, th: 4, fr: 5, sa: 6 };
     let sawToday = false;
 
@@ -632,11 +461,11 @@ function openNow(spec, cur) {
         if (end <= start) end += 1440; // over midnight
         const t = cur.minutes;
         if ((t >= start && t < end) || (t + 1440 >= start && t + 1440 < end)) {
-          return true;
+          return { open: true, closes: end };
         }
       }
     }
-    return sawToday ? false : null;
+    return sawToday ? { open: false } : null;
   } catch {
     return null;
   }

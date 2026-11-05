@@ -17,14 +17,13 @@ count the current session while at the bar.
   the official rules and the full rules text. An **"Ask about the rules"** box
   answers questions mid-game via Cloudflare Workers AI, grounded only in that
   game's rules text (`public/rules/<game>.txt`).
-- **Food** (`/food`): decides what to eat at the bar. Pick hunger / cuisine /
-  budget / walk distance; the Worker filters a built-in restaurant list
-  ([`src/restaurants.json`](src/restaurants.json)) and Workers AI ranks a top-3
-  shortlist with a one-line reason and Directions / Order / Call links. Stateless.
-  Config (bar location, cuisine map) in [`src/food.js`](src/food.js). The
-  list rebuilds itself monthly via a GitHub Actions workflow, which commits to
-  `main` and so redeploys (NYC health inspection open data + OpenStreetMap hours —
-  no keys, no cost).
+- **Food** (`/food`): helps decide what to bring back to the bar. Opens straight
+  to three different nearby options, with mood buttons, a per-card "Nah", and Menu /
+  Call to order links. Picks come from a built-in list
+  ([`src/restaurants.json`](src/restaurants.json)) that rebuilds itself monthly via a
+  GitHub Actions workflow, which commits to `main` and so redeploys (NYC health
+  inspection open data + OpenStreetMap hours — no keys, no cost). Stateless. Config
+  in [`src/food.js`](src/food.js).
 
 **Live:** https://guinness.holdengreenberg.workers.dev
 
@@ -52,7 +51,7 @@ fall through to the Worker:
 | `DELETE /api/history` | `{ id }` |
 | `GET /api/games` | list of games (id, name, official-rules url) |
 | `POST /api/ask` | `{ gameId, question }` → `{ answer }` via Workers AI |
-| `POST /api/food` | `{ hunger, cuisines, craving, budget, maxWalkMin, exclude? }` → `{ picks: [...] }` (built-in list + Workers AI) |
+| `POST /api/food` | `{ mood?, cuisines?, query?, maxWalkMin?, eatOut? }` → `{ picks: [...] }` (from the built-in list) |
 
 Games and their rules live in [`src/games.js`](src/games.js) (metadata) and
 `public/rules/*.txt` (rules text, served as static files and read by

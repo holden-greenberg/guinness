@@ -8,7 +8,20 @@
 //   - OpenStreetMap main API: opening hours and delivery, where someone tagged them
 
 import { readFileSync, writeFileSync } from "node:fs";
-import { BAR, CUISINES, SNACK_KINDS, WALK_MAX, haversine, walkMinutes } from "../src/food.js";
+import {
+  BAR,
+  CUISINES,
+  DAYTIME_CUISINES,
+  DAYTIME_NAME,
+  MOODS,
+  NOT_PORTABLE_NAME,
+  PORTABLE_CHIPS,
+  PORTABLE_CUISINES,
+  SNACK_KINDS,
+  WALK_MAX,
+  haversine,
+  walkMinutes,
+} from "../src/food.js";
 
 const OUT = new URL("../src/restaurants.json", import.meta.url);
 const UA = "guinness-dead-poet/1.0 (+https://guinness.holdengreenberg.workers.dev)";
@@ -40,6 +53,19 @@ function chipsFor(name, cuisine) {
   return CUISINES.filter(
     (c) => c.match.includes(cuisine) || (c.name && new RegExp(c.name, "i").test(name))
   ).map((c) => c.id);
+}
+
+function isPortable(place, tags = {}) {
+  if (tags.takeaway === "yes" || tags.takeaway === "only" || tags.amenity === "fast_food") return true;
+  if (tags.takeaway === "no" || tags.amenity === "bar" || tags.amenity === "pub") return false;
+  if (NOT_PORTABLE_NAME.test(place.name)) return false;
+  return PORTABLE_CUISINES.includes(place.cuisine) || place.chips.some((c) => PORTABLE_CHIPS.includes(c));
+}
+
+function cleanWebsite(url) {
+  if (!url) return null;
+  const full = /^https?:\/\//i.test(url) ? url : `https://${url}`;
+  return URL.canParse(full) ? full : null;
 }
 
 async function fetchCityPlaces() {
@@ -80,11 +106,15 @@ async function fetchCityPlaces() {
     const known = byName.get(name.toLowerCase());
     if (known && known.walkMin <= walkMin) continue;
 
-    byName.set(name.toLowerCase(), {
+    const chips = chipsFor(name, cuisine);
+    const place = {
       name,
       cuisine,
-      chips: chipsFor(name, cuisine),
+      chips,
+      moods: MOODS.filter((m) => m.chips.some((c) => chips.includes(c))).map((m) => m.id),
       snack: SNACK_KINDS.includes(cuisine),
+      daytime: DAYTIME_CUISINES.includes(cuisine) || DAYTIME_NAME.test(name),
+      portable: false,
       walkMin,
       lat: +lat.toFixed(5),
       lng: +lng.toFixed(5),
@@ -93,7 +123,10 @@ async function fetchCityPlaces() {
       grade: grades.get(r.camis) || null,
       hours: null,
       delivers: false,
-    });
+      website: null,
+    };
+    place.portable = isPortable(place);
+    byName.set(name.toLowerCase(), place);
   }
   return [...byName.values()];
 }
@@ -123,7 +156,8 @@ async function fetchOsmPlaces() {
       for (const e of elements) {
         const t = e.tags || {};
         if (!t.name || !/^(restaurant|fast_food|cafe|ice_cream|bar|pub)$/.test(t.amenity || "")) continue;
-        if (!t.opening_hours && t.delivery !== "yes") continue;
+        const useful = t.opening_hours || t.delivery === "yes" || t.takeaway || t.website || t["contact:website"];
+        if (!useful && t.amenity !== "fast_food") continue;
         // A building outline has no point of its own; any corner is close enough.
         const at = e.type === "way" ? e.nodes.map((id) => nodes.get(id)).find(Boolean) : e;
         if (at?.lat != null) found.push({ name: t.name, lat: at.lat, lng: at.lon, tags: t });
@@ -151,6 +185,8 @@ function addOsmDetails(places, osm) {
     if (!hit) continue;
     p.hours = hit.tags.opening_hours || null;
     p.delivers = hit.tags.delivery === "yes";
+    p.website = cleanWebsite(hit.tags.website || hit.tags["contact:website"]);
+    p.portable = isPortable(p, hit.tags);
     matched++;
   }
   return matched;
@@ -170,8 +206,8 @@ try {
   console.warn(`OpenStreetMap failed, keeping last known hours: ${err.message}`);
   const known = new Map(previous.map((p) => [p.name, p]));
   for (const p of places) {
-    p.hours = known.get(p.name)?.hours ?? null;
-    p.delivers = known.get(p.name)?.delivers ?? false;
+    const last = known.get(p.name);
+    if (last) Object.assign(p, { hours: last.hours, delivers: last.delivers, website: last.website, portable: last.portable });
   }
 }
 
@@ -184,4 +220,9 @@ writeFileSync(OUT, `{"updated":"${updated}","places":[\n${lines}\n]}\n`);
 
 const counts = CUISINES.map((c) => `${c.id}:${places.filter((p) => p.chips.includes(c.id)).length}`);
 console.log(`Wrote ${places.length} places. Chips: ${counts.join(" ")}`);
-console.log(`With hours: ${places.filter((p) => p.hours).length}`);
+const moodCounts = MOODS.map((m) => `${m.id}:${places.filter((p) => p.moods.includes(m.id) && p.portable).length}`);
+console.log(`Moods, bring-back only: ${moodCounts.join(" ")}`);
+console.log(
+  `Hours: ${places.filter((p) => p.hours).length}, websites: ${places.filter((p) => p.website).length}, ` +
+    `bring-back: ${places.filter((p) => p.portable && !p.snack).length}, daytime: ${places.filter((p) => p.daytime).length}`
+);

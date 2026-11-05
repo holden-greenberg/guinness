@@ -1,7 +1,13 @@
 "use strict";
 
-// Cuisine chips — mirrors CUISINES in src/food.js (labels + ids only; which
-// places get which chip is decided when the restaurant list is built).
+// Labels and ids only — mirrors MOODS and CUISINES in src/food.js. Which places
+// fit which is decided when the restaurant list is built.
+const MOODS = [
+  { id: "greasy", label: "Greasy" },
+  { id: "fresh", label: "Fresh" },
+  { id: "spicy", label: "Spicy" },
+  { id: "comfort", label: "Comfort" },
+];
 const CUISINES = [
   { id: "pizza", label: "Pizza" },
   { id: "burgers", label: "Burgers" },
@@ -27,199 +33,212 @@ const CUISINES = [
   { id: "healthy", label: "Salad / Healthy" },
   { id: "dessert", label: "Dessert / Ice cream" },
 ];
-const HUNGER = [
-  { id: "snack", label: "Snack" },
-  { id: "meal", label: "Real meal" },
-  { id: "feast", label: "Feast" },
-];
-const BUDGET = [
-  { id: "low", label: "$" },
-  { id: "mid", label: "$$" },
-  { id: "high", label: "$$$" },
-];
+const CARDS_ON_SCREEN = 3;
 
 const $ = (id) => document.getElementById(id);
-const $status = $("status");
 const $results = $("results");
-const $findBtn = $("findBtn");
 
-const state = { hunger: "meal", budget: new Set(), cuisines: new Set(), maxWalkMin: 12 };
-let busy = false;
-let excludeSet = new Set();
+const state = { mood: null, cuisines: new Set(), query: "", maxWalkMin: 8, eatOut: false };
+let pool = []; // places from the server not shown yet
+let shown = []; // the cards on screen
+let latestRequest = 0;
 
-function setStatus(msg, isError) {
-  $status.textContent = msg || "";
-  $status.classList.toggle("err", !!isError);
+// Next place from the pool, preferring a cuisine not already in `avoid`, so the
+// choices on screen are actually different from each other.
+function takeNext(avoid) {
+  if (!pool.length) return null;
+  const i = pool.findIndex((p) => !avoid.includes(p.cuisine));
+  return pool.splice(Math.max(i, 0), 1)[0];
 }
 
-async function api(path, body) {
-  const res = await fetch(path, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const payload = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const msg = payload.error || "HTTP " + res.status;
-    throw new Error(payload.detail ? `${msg} (${payload.detail})` : msg);
+function dealCards() {
+  shown = [];
+  while (shown.length < CARDS_ON_SCREEN && pool.length) {
+    shown.push(takeNext(shown.map((p) => p.cuisine)));
   }
-  return payload;
 }
 
-function buildSeg(el, items, key, multi) {
-  el.innerHTML = "";
-  for (const it of items) {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "seg-btn";
-    b.textContent = it.label;
-    const isOn = () => (multi ? state[key].has(it.id) : state[key] === it.id);
-    b.setAttribute("aria-pressed", String(isOn()));
-    b.addEventListener("click", () => {
-      if (multi) {
-        if (state[key].has(it.id)) state[key].delete(it.id);
-        else state[key].add(it.id);
-        b.setAttribute("aria-pressed", String(state[key].has(it.id)));
-      } else {
-        state[key] = it.id;
-        for (const sib of el.children) {
-          sib.setAttribute("aria-pressed", String(sib === b));
-        }
-      }
+function veto(pick) {
+  const avoid = [pick.cuisine, ...shown.filter((p) => p !== pick).map((p) => p.cuisine)];
+  const replacement = takeNext(avoid);
+  const i = shown.indexOf(pick);
+  if (replacement) shown[i] = replacement;
+  else shown.splice(i, 1);
+  render();
+}
+
+async function load() {
+  const request = ++latestRequest;
+  $results.setAttribute("aria-busy", "true");
+  try {
+    const res = await fetch("/api/food", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...state, cuisines: [...state.cuisines] }),
     });
-    el.append(b);
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const { picks } = await res.json();
+    if (request !== latestRequest) return; // a newer tap already replaced this
+    pool = picks;
+    dealCards();
+    render();
+  } catch {
+    if (request === latestRequest) renderMessage("Couldn't load picks.", "Try again", load);
+  } finally {
+    if (request === latestRequest) $results.removeAttribute("aria-busy");
   }
 }
 
-function buildChips() {
-  const wrap = $("cuisineChips");
-  wrap.innerHTML = "";
-  for (const c of CUISINES) {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "chip";
-    b.textContent = c.label;
-    b.setAttribute("aria-pressed", "false");
-    b.addEventListener("click", () => {
-      if (state.cuisines.has(c.id)) state.cuisines.delete(c.id);
-      else state.cuisines.add(c.id);
-      b.setAttribute("aria-pressed", String(state.cuisines.has(c.id)));
-    });
-    wrap.append(b);
+function threeMore() {
+  if (pool.length) {
+    dealCards();
+    render();
+  } else {
+    load(); // seen them all, so start over with a fresh shuffle
   }
 }
 
-function renderPicks(picks) {
+function link(label, href, className) {
+  const a = document.createElement("a");
+  a.className = className;
+  a.href = href;
+  a.textContent = label;
+  if (!href.startsWith("tel:")) {
+    a.target = "_blank";
+    a.rel = "noopener";
+  }
+  return a;
+}
+
+function textLine(className, text) {
+  const p = document.createElement("p");
+  p.className = className;
+  p.textContent = text;
+  return p;
+}
+
+function card(pick) {
+  const article = document.createElement("article");
+  article.className = "pick-card";
+
+  const top = document.createElement("div");
+  top.className = "pick-top";
+  const name = document.createElement("span");
+  name.className = "pick-name";
+  name.textContent = pick.name;
+  const nah = document.createElement("button");
+  nah.type = "button";
+  nah.className = "pick-nah";
+  nah.textContent = "Nah";
+  nah.setAttribute("aria-label", `Not ${pick.name}, show another`);
+  nah.addEventListener("click", () => veto(pick));
+  top.append(name, nah);
+
+  const walk = pick.eatOut ? `${pick.walkMin} min walk` : `${pick.walkMin} min each way`;
+  const tags = [pick.cuisine, walk];
+  if (pick.delivers) tags.push("delivers");
+  if (pick.grade) tags.push("Health " + pick.grade);
+
+  const hours = textLine("pick-hours", pick.hours);
+  hours.classList.toggle("unknown", !pick.hours.startsWith("Open"));
+
+  const main = document.createElement("div");
+  main.className = "pick-main";
+  main.append(link("Menu", pick.menuUrl, "pick-btn"));
+  if (pick.phone) main.append(link("Call to order", "tel:" + pick.phone, "pick-btn"));
+
+  const more = document.createElement("div");
+  more.className = "pick-actions";
+  more.append(
+    link("Delivery options ↗", pick.orderUrl, "pick-link"),
+    link("Photos & reviews ↗", pick.reviewsUrl, "pick-link"),
+    link("Directions ↗", pick.directionsUrl, "pick-link")
+  );
+
+  article.append(top, textLine("pick-meta", tags.join("  ·  ")), textLine("pick-meta", pick.address), hours, main, more);
+  return article;
+}
+
+function renderMessage(text, buttonLabel, onClick) {
   $results.innerHTML = "";
+  $results.append(textLine("loading", text));
+  if (buttonLabel) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "btn-reset reroll-btn";
+    b.textContent = buttonLabel;
+    b.addEventListener("click", onClick);
+    $results.append(b);
+  }
+}
 
-  if (!picks.length) {
-    const p = document.createElement("p");
-    p.className = "loading";
-    p.textContent = "Nothing open nearby matched that. Loosen a filter and try again.";
-    $results.append(p);
+function render() {
+  if (!shown.length) {
+    renderMessage("Nothing left that fits. Try another mood or widen More options.", "Start over", load);
     return;
   }
-
-  picks.forEach((pick, i) => {
-    const card = document.createElement("article");
-    card.className = "pick-card";
-
-    const top = document.createElement("div");
-    top.className = "pick-top";
-    const rank = document.createElement("span");
-    rank.className = "pick-rank";
-    rank.textContent = String(i + 1);
-    const name = document.createElement("span");
-    name.className = "pick-name";
-    name.textContent = pick.name;
-    top.append(rank, name);
-
-    const meta = document.createElement("p");
-    meta.className = "pick-meta";
-    const tags = [];
-    if (pick.cuisine) tags.push(pick.cuisine);
-    if (pick.modes.includes("walk")) tags.push(pick.walkMin + " min walk");
-    if (pick.modes.includes("delivery")) tags.push("delivers");
-    if (pick.hours === "open") tags.push("open now");
-    if (pick.grade) tags.push("Grade " + pick.grade);
-    meta.textContent = tags.join("  ·  ");
-
-    const address = document.createElement("p");
-    address.className = "pick-meta";
-    address.textContent = pick.address;
-
-    const reason = document.createElement("p");
-    reason.className = "pick-reason";
-    reason.textContent = pick.reason;
-
-    const actions = document.createElement("div");
-    actions.className = "pick-actions";
-    const links = [
-      ["Directions ↗", pick.mapsUrl],
-      ["Order ↗", pick.orderUrl],
-    ];
-    if (pick.phone) links.push(["Call", "tel:" + pick.phone]);
-    for (const [label, href] of links) {
-      const a = document.createElement("a");
-      a.className = "pick-link";
-      a.href = href;
-      if (!href.startsWith("tel:")) {
-        a.target = "_blank";
-        a.rel = "noopener";
-      }
-      a.textContent = label;
-      actions.append(a);
-    }
-
-    card.append(top, meta, address, reason, actions);
-    $results.append(card);
-  });
-
-  const reroll = document.createElement("button");
-  reroll.type = "button";
-  reroll.className = "btn-reset reroll-btn";
-  reroll.textContent = "Reroll";
-  reroll.addEventListener("click", () => find(true));
-  $results.append(reroll);
+  $results.innerHTML = "";
+  for (const pick of shown) $results.append(card(pick));
+  const more = document.createElement("button");
+  more.type = "button";
+  more.className = "btn-reset reroll-btn";
+  more.textContent = "Three more";
+  more.addEventListener("click", threeMore);
+  $results.append(more);
 }
 
-async function find(isReroll) {
-  if (busy) return;
-  busy = true;
-  $findBtn.disabled = true;
-  $findBtn.textContent = "Looking…";
-  setStatus("");
-  if (!isReroll) excludeSet = new Set();
-
-  try {
-    const res = await api("/api/food", {
-      hunger: state.hunger,
-      budget: [...state.budget],
-      cuisines: [...state.cuisines],
-      craving: $("craving").value.trim(),
-      maxWalkMin: state.maxWalkMin,
-      exclude: [...excludeSet],
+function pressGroup(container, items, isOn, onPress) {
+  for (const item of items) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = container.classList.contains("chips") ? "chip" : "seg-btn";
+    b.textContent = item.label;
+    b.setAttribute("aria-pressed", String(isOn(item)));
+    b.addEventListener("click", () => {
+      onPress(item);
+      for (const [i, sib] of [...container.children].entries()) {
+        sib.setAttribute("aria-pressed", String(isOn(items[i])));
+      }
+      load();
     });
-    const picks = res.picks || [];
-    for (const p of picks) excludeSet.add(p.name);
-    renderPicks(picks);
-  } catch (e) {
-    setStatus(e.message || "Something went wrong.", true);
-  } finally {
-    busy = false;
-    $findBtn.disabled = false;
-    $findBtn.textContent = "Find food";
+    container.append(b);
   }
 }
 
 (function init() {
-  buildSeg($("hungerSeg"), HUNGER, "hunger");
-  buildSeg($("budgetSeg"), BUDGET, "budget", true);
-  buildChips();
+  pressGroup(
+    $("moods"),
+    MOODS,
+    (m) => state.mood === m.id,
+    (m) => (state.mood = state.mood === m.id ? null : m.id)
+  );
+  pressGroup(
+    $("plan"),
+    [
+      { id: "back", label: "Bring it back" },
+      { id: "out", label: "Eat out" },
+    ],
+    (p) => state.eatOut === (p.id === "out"),
+    (p) => (state.eatOut = p.id === "out")
+  );
+  pressGroup(
+    $("cuisineChips"),
+    CUISINES,
+    (c) => state.cuisines.has(c.id),
+    (c) => (state.cuisines.has(c.id) ? state.cuisines.delete(c.id) : state.cuisines.add(c.id))
+  );
+
   const walk = $("walk");
-  walk.addEventListener("input", () => {
+  walk.addEventListener("input", () => ($("walkVal").textContent = walk.value));
+  walk.addEventListener("change", () => {
     state.maxWalkMin = Number(walk.value);
-    $("walkVal").textContent = walk.value;
+    load();
   });
-  $findBtn.addEventListener("click", () => find(false));
+
+  $("query").addEventListener("change", (e) => {
+    state.query = e.target.value.trim();
+    load();
+  });
+
+  load();
 })();

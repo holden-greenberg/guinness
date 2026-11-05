@@ -1,15 +1,13 @@
 # Food tab — design
 
-A fourth tab ("**Food**") that helps Holden / Stern / Biener decide what to eat
-while sitting at The Dead Poet (450 Amsterdam Ave #2, New York, NY 10024). You
-feed it a few constraints, it pulls real nearby restaurants, an AI ranks them,
-and you get a **top-3 shortlist** with a one-line reason and links to walk there
-or order in.
+A fourth tab ("**Food**") for when Holden / Stern / Biener are at The Dead Poet
+(450 Amsterdam Ave #2, New York, NY 10024) and nobody knows what they want. The
+bar allows outside food and they usually eat around 7-8pm, so it's built around
+one question: what should someone go and bring back?
 
 **Hard constraint: zero cost, no credit card on file anywhere, no billing risk.**
-Usage is ~once a month. Every piece below is either free with no card, or rides
-on a Cloudflare Free-plan allocation that *rate-limits instead of billing* when
-exhausted.
+Every piece below is either free with no card, or rides on a Cloudflare Free-plan
+allocation that *rate-limits instead of billing* when exhausted.
 
 Stateless — no history, no D1 writes at all.
 
@@ -17,26 +15,18 @@ Stateless — no history, no D1 writes at all.
 
 ## 1. What the user does
 
-1. Opens the **Food** tab.
-2. Sets four inputs:
-   - **Hunger** — segmented: `Snack` / `Real meal` / `Feast`
-   - **Craving** — multi-select cuisine chips *plus* a free-text box
-     ("…or say what you're feeling")
-   - **Budget** — multi-select tiers: `$` / `$$` / `$$$` (empty = any; soft
-     AI-only signal — see §3)
-   - **Walk** — slider, 5–25 min ("Walk up to 12 min"). Applies to walk-to
-     picks; delivery picks ignore it.
-3. Taps **Find food**.
-4. Gets 3 ranked cards. Each card:
-   - name
-   - meta line: cuisine · `7 min walk` and/or `delivers`
-   - one plain, practical sentence of reasoning
-   - **Directions ↗** (Google Maps link) and **Order ↗** (Google search
-     `"<name> delivery order"`)
-5. **Reroll** button re-runs the same inputs, excluding the 3 it just showed.
+1. Opens the **Food** tab. Three different options are already there, with no form
+   to fill in first.
+2. Optionally taps a mood (`Greasy` / `Fresh` / `Spicy` / `Comfort`) to reshuffle.
+3. Taps **Nah** on any card to swap just that place, or **Three more** for a new set.
+4. Taps **Menu** or **Call to order**. Smaller links: Delivery options, Photos &
+   reviews (the Google Maps page), Directions.
 
-Results are **blended**: walk-to and delivery options share one list, each pick
-labeled with its mode(s). A place can show both.
+**More options** (collapsed): Bring it back / Eat out, walk distance, cuisine chips,
+and a text box that searches names and cuisines.
+
+Each card shows the name, cuisine, `3 min each way`, health grade, address and
+either `Open until 10 PM` or `Hours not on file`.
 
 ---
 
@@ -64,51 +54,39 @@ If the city data looks wrong the run fails and the old list stays.
 Trade-off: no ratings or prices, hours for only about half the list, and new
 places can take up to a month to appear.
 
-### Filtering pipeline (in the Worker)
+### Build-time flags on each place
 
-1. Drop places beyond the walk limit, unless they deliver.
-2. **Cuisine chips:** keep places carrying a selected chip. With no chips, drop
-   snack-only kinds (coffee, juice, dessert) unless hunger is `Snack`.
-3. **Open now:** evaluate `opening_hours`. Closed → drop. Absent or unparseable →
-   keep, mark hours `unknown`.
-4. Shuffle what's left, moving places whose name or cuisine contains a word from
-   the craving box to the front, so they reach the AI.
-5. Hand the first 15 to the AI, nearest first. Hunger and budget are context for
-   the AI only.
+- `chips` / `moods` — which cuisine chips and mood buttons it fits.
+- `portable` — easy to bring back. A best guess from cuisine and name, overridden
+  by OpenStreetMap's takeout and bar tags. The data doesn't say who does takeout,
+  so a sit-down place sometimes slips through. That's what **Nah** is for.
+- `snack` — coffee, juice, dessert.
+- `daytime` — bagels, breakfast and the like, likely shut by dinner.
+
+### Picking (in the Worker)
+
+1. Drop places beyond the walk limit, or outside the chosen mood, chips or search.
+2. Unless a chip or search asked for them: drop snacks, drop non-`portable` places
+   when bringing food back, and from 3pm drop `daytime` places with no hours on file.
+3. Evaluate `opening_hours`. Closed → drop. Absent or unparseable → keep, labelled
+   `Hours not on file`.
+4. Order by walk time plus some randomness, so close places usually come first but
+   each visit differs. Return up to 30.
+
+The page keeps those 30 and deals from them, preferring cuisines not already on
+screen. Nah and Three more need no further request, and a new request only happens
+when the filters change or the 30 run out.
 
 Walk time is computed at build time: `haversine(bar, place) * 1.3 / 80 m·min⁻¹`.
 
-### Modes per place
-
-- **walk** — available if `walkMin ≤ maxWalkMin`.
-- **delivers** — shown when OSM says `delivery=yes`. The **Order ↗** link is
-  offered regardless, as a generic search.
-
 ---
 
-## 3. AI step
+## 3. No AI
 
-Reuses the existing Workers AI binding and model
-(`@cf/meta/llama-3.3-70b-instruct-fp8-fast`) — the same one the Games tab uses.
-On the Cloudflare **Free** plan, Workers AI past the daily allocation returns an
-error; it does **not** bill. Stays inside the zero-cost rule.
-
-**Input to model:** the user's constraints + free-text craving, and a compact
-candidate list — one line each:
-`name | cuisine | amenity | walkMin | delivers(y/n) | hours(open/unknown)`.
-
-**Prompt shape:**
-> You help three friends at a bar pick dinner. Choose exactly 3 from the
-> candidate list and rank them best-first for: hunger=`<>`, budget=`<>`,
-> cuisines=`<>`, craving="`<>`", max walk `<>` min. Return JSON:
-> `[{ "name": "...", "reason": "..." }]`. Reason ≤ 140 chars, plain and
-> practical, name the deciding factor (distance, what travels well, fits the
-> craving, portion size for the hunger level). Pick only from the list. Never
-> invent a place.
-
-`temperature: 0.3`, `max_tokens: 500`. Parse JSON; on parse failure or AI error,
-**fall back** to top-3 by `(cuisine match, then walkMin)` with a templated reason
-(`"6 min walk, matches Thai"`). Reroll passes an `exclude` array of names.
+v1 had Workers AI rank the picks and write a reason for each. It took 2-5 seconds,
+and with only cuisine, distance and hours to go on, its reasons just repeated the
+card. Removed so picks are instant and there's one less thing to fail. The Games
+tab still uses Workers AI.
 
 ---
 
@@ -123,15 +101,14 @@ pattern. Labels are repeated in `public/food.js`.
 ## 5. Endpoint
 
 ### `POST /api/food`
-Body:
+Body (all optional):
 ```json
 {
-  "hunger": "snack | meal | feast",
+  "mood": "greasy | fresh | spicy | comfort",
   "cuisines": ["pizza", "thai"],
-  "craving": "something spicy",
-  "budget": ["low", "mid", "high"],   // 0-3 tiers ($ / $$ / $$$), empty = any
-  "maxWalkMin": 12,
-  "exclude": ["Name A", "Name B"]     // optional, for reroll
+  "query": "dumplings",
+  "maxWalkMin": 8,
+  "eatOut": false
 }
 ```
 Response:
@@ -143,49 +120,36 @@ Response:
       "cuisine": "Thai",
       "address": "488 Amsterdam Avenue",
       "grade": "A",
-      "walkMin": 7,
-      "modes": ["walk", "delivery"],
-      "hours": "open | unknown",
-      "reason": "Closest spicy option and curries travel well in a bag.",
-      "mapsUrl": "https://www.google.com/maps/search/?api=1&query=…",
-      "orderUrl": "https://www.google.com/search?q=…+delivery+order",
-      "phone": "+1…"
+      "walkMin": 3,
+      "eatOut": false,
+      "hours": "Open until 10 PM",
+      "delivers": false,
+      "phone": "2125551234",
+      "menuUrl": "https://…",
+      "orderUrl": "https://www.google.com/search?q=…",
+      "directionsUrl": "https://www.google.com/maps/dir/?api=1&…",
+      "reviewsUrl": "https://www.google.com/maps/search/?api=1&query=…"
     }
   ]
 }
 ```
-`mapsUrl` / `orderUrl` are built from the name + address, no API. If the AI is
-unavailable, picks fall back to nearest-first with a templated reason.
-
-No config endpoint — the chip list is static in `food.js`.
+`menuUrl` is the place's website where known, otherwise a Google search. Links are
+built from the name and address, no API.
 
 ---
 
 ## 6. Keeping it free & light
 
-- **No keys, no secrets, no billing account.** The list ships with the Worker;
-  Workers AI / Workers / static assets are all on the existing Cloudflare Free
-  plan.
-- **No D1 use, no daily cap** — nothing costs money, so nothing to meter.
-- One "Find food" = 1 Workers AI call.
+- **No keys, no secrets, no billing account.** The list ships with the Worker, and
+  Workers and static assets are on the existing Cloudflare Free plan.
+- **No D1 use, no AI, no outside calls** when picking food.
 
 ---
 
-## 7. Resolved decisions
+## 7. Non-goals
 
-1. **Order link** — plain Google search (`"<name> delivery order"`). ✅
-2. **`opening_hours`** — small best-effort parser + `unknown` fallback. ✅
-3. **Cuisine chips** — the set in §4. ✅
-4. **Tab label** — "Food" (route `/food`, files `food.*`). ✅
-5. **Budget input** — multi-select `$` / `$$` / `$$$` tiers, kept as a soft
-   AI-only signal, no data filter. ✅
-
----
-
-## 8. Explicit non-goals for v1
-
-- No ratings or price levels (the data has none).
-- No saved history / "what did we eat last time" / repeat down-weighting.
+- No ratings, prices or photos on the card (the data has none). Photos & reviews links out instead.
+- No saved history or ratings yet. Group thumbs up/down is the likely next step.
 - No in-app ordering or payment — links out only.
 - No "how drunk" input.
 - No account/personalization per person.
