@@ -89,6 +89,17 @@ function fileFor(id) {
   );
 }
 
+const sampleQuestions = {
+  "99": "If the count is at 98, can I play a 4 to reset it to 0?",
+  "egyptian-rat-screw": "Can you slap on a sandwich if the middle card is a face card?",
+  "monopoly-deal": "Can I play a Just Say No in response to another Just Say No?",
+};
+
+function updateQuestionPlaceholder() {
+  const sample = sampleQuestions[$gameSelect.value] || "What's a rule you're unsure about?";
+  $question.placeholder = "e.g. " + sample;
+}
+
 function addAnswer(gameName, question, answer, isError) {
   const item = document.createElement("article");
   item.className = "answer" + (isError ? " answer-err" : "");
@@ -132,6 +143,7 @@ async function ask() {
 }
 
 $askBtn.addEventListener("click", ask);
+$gameSelect.addEventListener("change", updateQuestionPlaceholder);
 $question.addEventListener("keydown", (e) => {
   if ((e.metaKey || e.ctrlKey) && e.key === "Enter") ask();
 });
@@ -147,6 +159,7 @@ $question.addEventListener("keydown", (e) => {
       opt.textContent = g.name;
       $gameSelect.append(opt);
     }
+    updateQuestionPlaceholder();
     renderGameList();
   } catch (e) {
     $gameList.innerHTML = `<p class="loading">Couldn't load games. Refresh to try again.</p>`;
