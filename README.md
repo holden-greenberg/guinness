@@ -8,8 +8,8 @@ count the current session while at the bar.
 - **Counter** (`/`): tap **+1 Guinness** on your card. It adds one to your
   lifetime total *and* to the shared "tonight" counter, on every phone.
   **Undo** removes your most recent tap. **Save to history** rolls tonight's
-  taps into a dated row on the History page; **Reset tonight** clears the
-  tonight counter without saving. Lifetime totals are never edited here.
+  taps into a dated row on the History page; **Reset tonight** throws away
+  any unsaved taps, which also takes them off the lifetime totals.
 - **History** (`/history`): every night at the bar as a dated row with each
   person's count. Anyone can **Edit** a row (date, counts, note), **+ Add
   session** by hand, or delete one. Lifetime = sum of these rows.
