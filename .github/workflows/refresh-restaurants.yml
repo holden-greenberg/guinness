@@ -1,0 +1,35 @@
+# Rebuilds the Food tab's restaurant list every month. The push to main is what
+# redeploys the Worker. The list's date changes on every run, so there is always
+# a commit, which also stops GitHub disabling this schedule for inactivity.
+name: Refresh restaurants
+
+on:
+  schedule:
+    - cron: "17 9 1 * *"
+  workflow_dispatch:
+  # Also run when this file changes, so a broken workflow shows up right away
+  # instead of on the 1st of next month.
+  push:
+    branches: [main]
+    paths: [".github/workflows/refresh-restaurants.yml"]
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node scripts/refresh-restaurants.mjs
+      - name: Commit the new list
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/restaurants.json
+          git commit -m "Refresh restaurant list"
+          git push

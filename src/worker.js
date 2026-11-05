@@ -4,14 +4,8 @@
 // request that doesn't match a file (the /api/* routes) falls through here.
 
 import { GAMES, GAME_BY_ID } from "./games.js";
-import {
-  BAR,
-  CUISINE_BY_ID,
-  haversine,
-  walkMinutes,
-  mapsUrl,
-  orderUrl,
-} from "./food.js";
+import { CUISINE_BY_ID, mapsUrl, orderUrl } from "./food.js";
+import RESTAURANTS from "./restaurants.json";
 
 const PEOPLE = ["matt", "alex", "holden"];
 const PERSON_SET = new Set(PEOPLE);
@@ -22,22 +16,6 @@ const QUESTION_MAX = 500;
 const CRAVING_MAX = 200;
 const AI_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 
-// Free, keyless restaurant data for the Food tab. The public Overpass
-// instances are frequently overloaded (429/504) or down, so we try them in
-// staggered order and fall back to a stale cached result when every one fails.
-// Staggering (not racing all at once) keeps CPU low: each response we parse
-// costs CPU, and the free tier allows ~10ms per request.
-const OVERPASS_ENDPOINTS = [
-  "https://overpass-api.de/api/interpreter",
-  "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
-  "https://overpass.kumi.systems/api/interpreter",
-  "https://overpass.private.coffee/api/interpreter",
-  "https://overpass.osm.jp/api/interpreter",
-];
-const OVERPASS_UA = "guinness-dead-poet/1.0 (+https://guinness.holdengreenberg.workers.dev)";
-const OVERPASS_STAGGER_MS = 2000; // wait this long for a mirror before also trying the next
-const OVERPASS_FRESH_MS = 6 * 60 * 60 * 1000; // serve cache without refetch below this
-const OVERPASS_KEEP_S = 7 * 24 * 60 * 60; // keep last good result this long for stale fallback
 const HUNGER_SET = new Set(["snack", "meal", "feast"]);
 const BUDGET_SET = new Set(["low", "mid", "high"]);
 const BUDGET_LABEL = { low: "$", mid: "$$", high: "$$$" };
@@ -225,21 +203,11 @@ export default {
       if (pathname === "/api/food" && method === "POST") {
         const input = readFoodInput(await readJson(request));
 
-        let elements;
-        try {
-          elements = await overpassRestaurants(input.maxWalkMin);
-        } catch (err) {
-          return json(
-            { error: "couldn't reach the restaurant map right now", detail: describeError(err) },
-            503
-          );
-        }
-
-        const candidates = filterCandidates(elements, input);
+        const candidates = filterCandidates(input);
         const debug = url.searchParams.get("debug");
         if (!candidates.length) {
           return json(
-            debug ? { picks: [], _debug: { elements: elements.length, candidates: 0 } } : { picks: [] }
+            debug ? { picks: [], _debug: { candidates: 0 } } : { picks: [] }
           );
         }
 
@@ -249,7 +217,7 @@ export default {
           )
         );
         const trimmed = candidates.filter((c) => !exclude.has(c.name.toLowerCase()));
-        const shortlist = (trimmed.length ? trimmed : candidates).slice(0, 15);
+        const shortlist = buildShortlist(trimmed.length ? trimmed : candidates, input.craving);
 
         let ranked = null;
         let aiErr = null;
@@ -282,7 +250,7 @@ export default {
           return json({
             picks,
             _debug: {
-              elements: elements.length,
+              restaurantsUpdated: RESTAURANTS.updated,
               candidates: candidates.length,
               shortlist: shortlist.map((c) => c.name),
               aiRanked: ranked ? ranked.length : null,
@@ -427,155 +395,45 @@ function readFoodInput(body) {
   };
 }
 
-// Restaurants/fast-food/cafés around the bar, from OpenStreetMap. Keyless.
-// Fresh result cached 6 hours; last good result kept a week and served stale
-// if every Overpass mirror is failing (they often are).
-async function overpassRestaurants(maxWalkMin) {
-  const radius = Math.min(2200, Math.max(1000, maxWalkMin * 80));
-  const query =
-    `[out:json][timeout:25];` +
-    `nwr["amenity"~"^(restaurant|fast_food|cafe)$"](around:${radius},${BAR.lat},${BAR.lng});` +
-    `out center 60;`;
-
-  const cache = caches.default;
-  const cacheKey = new Request(`https://food.cache/overpass?r=${radius}`);
-  const cached = await cache.match(cacheKey);
-  const cachedBody = cached ? await cached.json() : null;
-  if (cachedBody && Date.now() - (cachedBody.fetchedAt || 0) < OVERPASS_FRESH_MS) {
-    return cachedBody.elements;
-  }
-
-  try {
-    const elements = await raceOverpass(query);
-    await cache.put(
-      cacheKey,
-      new Response(JSON.stringify({ elements, fetchedAt: Date.now() }), {
-        headers: {
-          "content-type": "application/json",
-          "cache-control": `max-age=${OVERPASS_KEEP_S}`,
-        },
-      })
-    );
-    return elements;
-  } catch (err) {
-    if (cachedBody) return cachedBody.elements; // stale, but better than nothing
-    throw err;
-  }
-}
-
-// Hedged requests: start the first mirror, and only start the next one if
-// nothing has answered within OVERPASS_STAGGER_MS. First usable result wins and
-// the rest are aborted, so at most a couple of responses are ever parsed.
-async function raceOverpass(query) {
-  const stop = new AbortController();
-  const attempts = OVERPASS_ENDPOINTS.map(async (endpoint, i) => {
-    if (i > 0) {
-      await new Promise((resolve) => setTimeout(resolve, i * OVERPASS_STAGGER_MS));
-    }
-    if (stop.signal.aborted) throw new Error(`${endpoint} → skipped`);
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "content-type": "application/x-www-form-urlencoded",
-        "user-agent": OVERPASS_UA,
-      },
-      body: "data=" + encodeURIComponent(query),
-      signal: AbortSignal.any([stop.signal, AbortSignal.timeout(20000)]),
-    }).catch((e) => {
-      throw new Error(`${endpoint} → ${e?.message ?? e}`);
-    });
-    if (!res.ok) throw new Error(`${endpoint} → HTTP ${res.status}`);
-    const data = await res.json();
-    // A healthy mirror near a dense area returns dozens; a broken/empty
-    // mirror answers fast with []. Don't let that win the race.
-    if (!Array.isArray(data.elements) || data.elements.length < 5) {
-      throw new Error(`${endpoint} → thin result (${data.elements?.length ?? "none"})`);
-    }
-    return data.elements;
-  });
-  try {
-    return await Promise.any(attempts);
-  } finally {
-    stop.abort();
-  }
-}
-
-// AggregateError's message hides the per-mirror reasons; spell them out.
-function describeError(err) {
-  if (err instanceof AggregateError) {
-    return err.errors.map((e) => e?.message ?? String(e)).join("; ");
-  }
-  return String(err);
-}
-
-function filterCandidates(elements, input) {
+// Everything in reach and not known to be closed, nearest first (the list is
+// stored sorted). A place with no hours on record stays in, marked "unknown".
+function filterCandidates(input) {
   const now = nycNow();
-  const wanted = new Set(
-    input.cuisines.flatMap((id) => CUISINE_BY_ID.get(id).match)
-  );
-  const seen = new Set();
   const out = [];
 
-  for (const el of elements) {
-    const tags = el.tags || {};
-    const name = String(tags.name || "").trim();
-    if (!name || seen.has(name.toLowerCase())) continue;
-
-    const lat = el.lat ?? el.center?.lat;
-    const lng = el.lon ?? el.center?.lon;
-    if (typeof lat !== "number" || typeof lng !== "number") continue;
-
-    const meters = haversine(BAR, { lat, lng });
-    const walkMin = walkMinutes(meters);
-    const delivers = tags.delivery === "yes";
-    if (walkMin > input.maxWalkMin && !delivers) continue;
-
-    let hours = "unknown";
-    if (tags.opening_hours) {
-      const open = openNow(tags.opening_hours, now);
-      if (open === false) continue;
-      if (open === true) hours = "open";
+  for (const place of RESTAURANTS.places) {
+    if (place.walkMin > input.maxWalkMin && !place.delivers) continue;
+    if (input.cuisines.length) {
+      if (!input.cuisines.some((id) => place.chips.includes(id))) continue;
+    } else if (place.snack && input.hunger !== "snack") {
+      continue;
     }
 
-    const cuisineParts = String(tags.cuisine || "")
-      .toLowerCase()
-      .split(";")
-      .map((s) => s.trim())
-      .filter(Boolean);
-    if (wanted.size && !cuisineParts.some((p) => wanted.has(p))) continue;
-
-    seen.add(name.toLowerCase());
-    out.push({
-      name,
-      lat,
-      lng,
-      meters,
-      walkMin,
-      delivers,
-      hours,
-      amenity: tags.amenity || "restaurant",
-      phone: tags.phone || tags["contact:phone"] || null,
-      cuisineParts,
-      cuisineLabel: prettyCuisine(cuisineParts, tags.amenity),
-    });
+    const open = place.hours ? openNow(place.hours, now) : null;
+    if (open === false) continue;
+    out.push({ ...place, hours: open ? "open" : "unknown" });
   }
-
-  out.sort((a, b) => a.meters - b.meters);
   return out;
 }
 
-function prettyCuisine(parts, amenity) {
-  if (parts.length) {
-    return parts
-      .slice(0, 2)
-      .map((p) =>
-        p.replace(/_/g, " ").replace(/\b\w/g, (m) => m.toUpperCase())
-      )
-      .join(", ");
-  }
-  if (amenity === "cafe") return "Café";
-  if (amenity === "fast_food") return "Fast food";
-  return "Restaurant";
+// The AI only sees a short list. Sample across the whole walk range, because the
+// nearest few dozen would give the same picks every time and ignore the slider.
+// Places that literally match what was typed ("tacos", "ramen") always make it.
+const CRAVING_NOISE = new Set(["the", "and", "for", "not", "some", "something", "food", "want"]);
+function buildShortlist(candidates, craving) {
+  const words = (craving.toLowerCase().match(/[a-z]{3,}/g) || []).filter((w) => !CRAVING_NOISE.has(w));
+  const matches = (c) => {
+    const labels = c.chips.map((id) => CUISINE_BY_ID.get(id).label);
+    const text = [c.name, c.cuisine, ...labels].join(" ").toLowerCase();
+    return words.some((w) => text.includes(w));
+  };
+  const shuffled = candidates
+    .map((c) => ({ c, order: Math.random() }))
+    .sort((a, b) => a.order - b.order)
+    .map(({ c }) => c);
+  return [...shuffled.filter(matches), ...shuffled.filter((c) => !matches(c))]
+    .slice(0, 15)
+    .sort((a, b) => matches(b) - matches(a) || a.walkMin - b.walkMin);
 }
 
 function shapePick(c, input, reason) {
@@ -585,20 +443,22 @@ function shapePick(c, input, reason) {
   if (!modes.length) modes.push("walk");
   return {
     name: c.name,
-    cuisine: c.cuisineLabel,
+    cuisine: c.cuisine,
+    address: c.address,
+    grade: c.grade,
     walkMin: c.walkMin,
     modes,
     hours: c.hours,
     reason,
-    mapsUrl: mapsUrl(c.name, c.lat, c.lng),
+    mapsUrl: mapsUrl(c.name, c.address),
     orderUrl: orderUrl(c.name),
     phone: c.phone,
   };
 }
 
 function fallbackReason(c) {
-  const bits = [`${c.walkMin} min walk`];
-  if (c.cuisineParts.length) bits.push(c.cuisineLabel.toLowerCase());
+  const bits = [`${c.walkMin} min walk`, c.cuisine.toLowerCase()];
+  if (c.hours === "open") bits.push("open now");
   if (c.delivers) bits.push("delivers");
   const s = bits.join(", ");
   return s.charAt(0).toUpperCase() + s.slice(1);
@@ -612,7 +472,7 @@ async function rankWithAI(env, shortlist, input) {
   const lines = shortlist
     .map(
       (c, i) =>
-        `${i + 1}. ${c.name} | ${c.cuisineLabel} | ${c.amenity} | ${c.walkMin} min walk | delivers: ${c.delivers ? "y" : "n"} | hours: ${c.hours}`
+        `${i + 1}. ${c.name} | ${c.cuisine} | ${c.walkMin} min walk | delivers: ${c.delivers ? "y" : "n"} | hours: ${c.hours}`
     )
     .join("\n");
 

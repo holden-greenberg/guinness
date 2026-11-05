@@ -1,7 +1,7 @@
 "use strict";
 
-// Cuisine chips — mirrors CUISINES in src/food.js (labels + ids only; the
-// id -> OSM cuisine-value map lives server-side).
+// Cuisine chips — mirrors CUISINES in src/food.js (labels + ids only; which
+// places get which chip is decided when the restaurant list is built).
 const CUISINES = [
   { id: "pizza", label: "Pizza" },
   { id: "burgers", label: "Burgers" },
@@ -12,7 +12,6 @@ const CUISINES = [
   { id: "thai", label: "Thai" },
   { id: "sushi", label: "Sushi / Japanese" },
   { id: "ramen", label: "Ramen / Noodles" },
-  { id: "korean", label: "Korean" },
   { id: "vietnamese", label: "Vietnamese" },
   { id: "indian", label: "Indian" },
   { id: "italian", label: "Italian / Pasta" },
@@ -23,7 +22,7 @@ const CUISINES = [
   { id: "seafood", label: "Seafood" },
   { id: "med", label: "Mediterranean / Greek" },
   { id: "mideast", label: "Middle Eastern / Falafel" },
-  { id: "halal", label: "Halal cart" },
+  { id: "halal", label: "Halal" },
   { id: "french", label: "French" },
   { id: "healthy", label: "Salad / Healthy" },
   { id: "dessert", label: "Dessert / Ice cream" },
@@ -142,7 +141,12 @@ function renderPicks(picks) {
     if (pick.modes.includes("walk")) tags.push(pick.walkMin + " min walk");
     if (pick.modes.includes("delivery")) tags.push("delivers");
     if (pick.hours === "open") tags.push("open now");
+    if (pick.grade) tags.push("Grade " + pick.grade);
     meta.textContent = tags.join("  ·  ");
+
+    const address = document.createElement("p");
+    address.className = "pick-meta";
+    address.textContent = pick.address;
 
     const reason = document.createElement("p");
     reason.className = "pick-reason";
@@ -150,20 +154,24 @@ function renderPicks(picks) {
 
     const actions = document.createElement("div");
     actions.className = "pick-actions";
-    for (const [label, href] of [
+    const links = [
       ["Directions ↗", pick.mapsUrl],
       ["Order ↗", pick.orderUrl],
-    ]) {
+    ];
+    if (pick.phone) links.push(["Call", "tel:" + pick.phone]);
+    for (const [label, href] of links) {
       const a = document.createElement("a");
       a.className = "pick-link";
       a.href = href;
-      a.target = "_blank";
-      a.rel = "noopener";
+      if (!href.startsWith("tel:")) {
+        a.target = "_blank";
+        a.rel = "noopener";
+      }
       a.textContent = label;
       actions.append(a);
     }
 
-    card.append(top, meta, reason, actions);
+    card.append(top, meta, address, reason, actions);
     $results.append(card);
   });
 
