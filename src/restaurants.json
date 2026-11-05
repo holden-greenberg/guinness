@@ -1,4 +1,4 @@
-{"updated":"2026-11-05","places":[
+{"updated":"2026-11-04","places":[
   {"name":"Barachou","cuisine":"French","chips":["french"],"snack":false,"walkMin":1,"lat":40.78477,"lng":-73.97712,"address":"449 Amsterdam Avenue","phone":"6463987788","grade":"A","hours":null,"delivers":false},
   {"name":"Craft + Carry","cuisine":"American","chips":["american"],"snack":false,"walkMin":1,"lat":40.78537,"lng":-73.97672,"address":"466 Amsterdam Avenue","phone":"9174727723","grade":"A","hours":"Mo-We 12:00-01:00; Th-Sa 12:00-02:00; Su 12:00-01:00","delivers":false},
   {"name":"Crave Fish Bar","cuisine":"American","chips":["american"],"snack":false,"walkMin":1,"lat":40.78417,"lng":-73.97759,"address":"428 Amsterdam Avenue","phone":"6464942750","grade":"A","hours":null,"delivers":false},
